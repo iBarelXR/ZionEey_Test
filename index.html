@@ -52,8 +52,6 @@
         </div>
         
         <div id="setup-controls">
-            <!-- PASTE FIREBASE CONFIG HERE OR EDIT CODE -->
-            
             <button class="btn btn-blue" onclick="joinGame('blue')">Join Blue Team (M4)</button>
             <button class="btn btn-red" onclick="joinGame('red')">Join Red Team (AK47)</button>
         </div>
@@ -64,7 +62,6 @@
 
     <script>
         // --- CALIBRATION COMPONENT ---
-        // Moves the #world-root to match the controller's physical location
         AFRAME.registerComponent('calibration-listener', {
             init: function () {
                 this.el.addEventListener('triggerdown', this.calibrate.bind(this));
@@ -73,16 +70,14 @@
                 const worldRoot = document.getElementById('world-root');
                 const controller = this.el.object3D;
                 
-                // 1. Get Controller World Position/Rotation (which is actually local to the camera rig parent)
+                // Get Controller World Position/Rotation
                 const pos = controller.position;
                 const rot = controller.rotation;
 
-                // 2. Move the World Root to this position
-                // This makes the "Virtual Origin" (0,0,0) appear exactly at the controller tip
+                // Move the World Root to this position (The "Snap" Effect)
                 worldRoot.object3D.position.set(pos.x, pos.y, pos.z);
                 
-                // 3. Align Rotation (Yaw Only)
-                // We keep X and Z rotation flat so the floor doesn't tilt, only the direction resets
+                // Align Rotation (Yaw Only) - keeps floor flat
                 worldRoot.object3D.rotation.set(0, rot.y, 0);
 
                 // Feedback
@@ -90,7 +85,7 @@
                 status.innerText = "Target Synced! World moved to Controller.";
                 status.style.color = "lime";
                 
-                // Flash the marker to show success
+                // Flash the marker
                 const marker = document.getElementById('calibration-marker');
                 marker.setAttribute('visible', 'true');
                 setTimeout(() => marker.setAttribute('visible', 'false'), 2000);
@@ -107,7 +102,6 @@
         </a-assets>
 
         <!-- LOCAL PLAYER RIG (This is YOU in physical space) -->
-        <!-- We do NOT move this. The rig represents the raw Quest tracking. -->
         <a-entity id="local-rig" position="0 0 0">
             <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
             
@@ -118,17 +112,16 @@
 
 
         <!-- WORLD ROOT (This is the Game Universe) -->
-        <!-- We move THIS container to align with the real world -->
         <a-entity id="world-root" position="0 0 0">
             
-            <!-- Calibration Visual Marker (Shows where 0,0,0 is) -->
+            <!-- Calibration Visual Marker -->
             <a-entity id="calibration-marker" visible="true">
                 <a-box position="0 0 0" width="0.1" height="0.1" depth="0.1" color="yellow" wireframe="true"></a-box>
                 <a-text value="SYNC POINT" align="center" position="0 0.2 0" scale="0.3 0.3 0.3" color="yellow"></a-text>
                 <a-cylinder height="0.01" radius="0.2" color="yellow" opacity="0.3"></a-cylinder>
             </a-entity>
 
-            <!-- Remote Players will be spawned INSIDE here -->
+            <!-- Remote Players Container -->
             <a-entity id="remote-players"></a-entity>
 
         </a-entity>
@@ -136,26 +129,38 @@
     </a-scene>
 
     <script>
-        // --- FIREBASE CONFIG ---
+        // --- FIREBASE CONFIGURATION ---
+        // REPLACE THE ENTIRE CONSTANT BELOW WITH YOUR COPIED CONFIG
+        
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
         const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT_ID.appspot.com",
-            messagingSenderId: "SENDER_ID",
-            appId: "APP_ID"
+          apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
+          authDomain: "zioneye-prototype.firebaseapp.com",
+          projectId: "zioneye-prototype",
+          storageBucket: "zioneye-prototype.firebasestorage.app",
+          messagingSenderId: "356865086206",
+          appId: "1:356865086206:web:d611c8deb6a98070dc0baf",
+          measurementId: "G-P1XL9VQN79"
         };
+
+        // ------------------------------
 
         let db, auth, currentUserId, myTeam = null;
 
         function initFirebase() {
-            if(firebaseConfig.apiKey === "YOUR_API_KEY") {
-                alert("Please edit HTML and add Firebase keys!");
-                return false;
+            // Safety check removed. We trust the config is there.
+            if (!firebase.apps.length) {
+                try {
+                    firebase.initializeApp(firebaseConfig);
+                    db = firebase.firestore();
+                    auth = firebase.auth();
+                    return true;
+                } catch (e) {
+                    console.error("Firebase Init Error:", e);
+                    alert("Firebase Error: " + e.message + "\nCheck console for details.");
+                    return false;
+                }
             }
-            if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-            db = firebase.firestore();
-            auth = firebase.auth();
             return true;
         }
 
@@ -173,14 +178,13 @@
                 // Create player doc
                 await db.collection('players').doc(currentUserId).set({
                     team: team,
-                    // We init at 0,0,0 but the update loop will fix it
                     x: 0, y: 0, z: 0,
                     rotX: 0, rotY: 0, rotZ: 0,
                     active: true
                 });
 
                 spawnLocalWeapon(team);
-                startGameLoop(); // Start syncing
+                startGameLoop(); 
                 
                 document.getElementById('overlay').classList.add('hidden');
                 
@@ -194,7 +198,6 @@
             }
         }
 
-        // Procedural Weapon Generation
         function spawnLocalWeapon(team) {
             const hand = document.getElementById('right-hand');
             const weapon = document.createElement('a-entity');
@@ -229,17 +232,12 @@
                 const head = document.getElementById('local-head');
                 const worldRoot = document.getElementById('world-root');
 
-                // MATH: Convert Local Head Position -> Relative to World Root
-                // We must store positions RELATIVE to the calibrated center (world-root)
-                // so that when other players download them, they display inside THEIR world-root.
-                
+                // Transform local position to world-root space
                 const rootWorldInv = new THREE.Matrix4().copy(worldRoot.object3D.matrixWorld).invert();
                 const headWorld = head.object3D.matrixWorld;
                 
-                // Calculate relative matrix
                 const relativeMatrix = new THREE.Matrix4().multiplyMatrices(rootWorldInv, headWorld);
                 
-                // Extract position and rotation from the relative matrix
                 const pos = new THREE.Vector3();
                 const quat = new THREE.Quaternion();
                 const scale = new THREE.Vector3();
@@ -247,7 +245,6 @@
                 
                 const rot = new THREE.Euler().setFromQuaternion(quat);
 
-                // Send to Firebase
                 db.collection('players').doc(currentUserId).update({
                     x: pos.x, y: pos.y, z: pos.z,
                     rotX: rot.x, rotY: rot.y, rotZ: rot.z,
@@ -268,10 +265,7 @@
         }
 
         function createRemotePlayer(id, data) {
-            // Note: We append to 'remote-players', which is INSIDE 'world-root'
-            // This ensures their coordinates (relative to center) appear correctly in OUR room.
             const container = document.getElementById('remote-players');
-            
             const el = document.createElement('a-entity');
             el.setAttribute('id', `player-${id}`);
             
@@ -282,7 +276,7 @@
 
             if (data.team === 'blue') {
                 indicator.setAttribute('mixin', 'blue-indicator');
-                if (myTeam === 'red') indicator.setAttribute('visible', false); // Stealth
+                if (myTeam === 'red') indicator.setAttribute('visible', false);
             } else {
                 indicator.setAttribute('mixin', 'red-indicator');
                 indicator.setAttribute('visible', true);
@@ -302,7 +296,6 @@
         function updateRemotePlayer(id, data) {
             const el = document.getElementById(`player-${id}`);
             if (el) {
-                // Since 'el' is inside #world-root, these X/Y/Z are relative to the anchor
                 el.object3D.position.set(data.x, data.y, data.z);
                 el.object3D.rotation.set(data.rotX, data.rotY, data.rotZ);
             }
@@ -312,18 +305,6 @@
             const el = document.getElementById(`player-${id}`);
             if (el) el.remove();
         }
-    </script>
-    <script type="module">
-        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-        const firebaseConfig = {
-          apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
-          authDomain: "zioneye-prototype.firebaseapp.com",
-          projectId: "zioneye-prototype",
-          storageBucket: "zioneye-prototype.firebasestorage.app",
-          messagingSenderId: "356865086206",
-          appId: "1:356865086206:web:d611c8deb6a98070dc0baf",
-          measurementId: "G-P1XL9VQN79"
-        };
     </script>
 </body>
 </html>
