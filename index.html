@@ -70,10 +70,10 @@
         <a-sky color="#000000" opacity="0"></a-sky>
 
         <a-assets>
-            <!-- Blue Diamond (Static) -->
-            <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="color: #00aaff; shader: flat; opacity: 0.9"></a-mixin>
-            <!-- Red Triangle (Points Down) -->
-            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="color: #ff3333; shader: flat; opacity: 0.9"></a-mixin>
+            <!-- Blue Diamond (X-Ray Enabled via depthTest: false) -->
+            <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="color: #00aaff; shader: flat; opacity: 0.9; depthTest: false"></a-mixin>
+            <!-- Red Triangle (X-Ray Enabled via depthTest: false) -->
+            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="color: #ff3333; shader: flat; opacity: 0.9; depthTest: false"></a-mixin>
         </a-assets>
 
         <!-- LOCAL PLAYER RIG -->
