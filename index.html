@@ -14,7 +14,8 @@
     <style>
         body { font-family: sans-serif; background-color: transparent; }
         
-        .a-enter-vr { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
+        /* Hide Default VR Button to force our custom flow */
+        .a-enter-vr { display: none !important; }
         
         #overlay {
             position: absolute; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%;
@@ -46,8 +47,10 @@
     <div id="overlay">
         <h1>Quest 3 AR Battle</h1>
         <div class="calibration-instruction">
-            <h3>🎯 Troubleshooting</h3>
-            <p><strong>Can't see the yellow box?</strong><br>1. Look for the GREEN LINE coming from your right hand.<br>2. Press <strong>'A'</strong> or <strong>'X'</strong> to summon the box to your face.</p>
+            <h3>🎯 DEBUG MODE</h3>
+            <p><strong>1. Verify:</strong> Look for the 🔴 RED BALL on your Right Hand.</p>
+            <p><strong>2. Locate:</strong> Follow the 🟢 GREEN ARROW on your hand to find the world.</p>
+            <p><strong>3. Reset:</strong> Press <strong>'A'</strong> or <strong>'X'</strong> to bring the world to you.</p>
         </div>
         <div id="setup-controls">
             <button class="btn btn-blue" onclick="startAR('blue')">Join Blue Team</button>
@@ -56,13 +59,13 @@
         <p id="loading-text" class="hidden">Starting AR...</p>
     </div>
 
-    <div id="status">Press 'A' to Summon World</div>
+    <div id="status">Look for Red Ball on Hand</div>
 
     <!-- 3D Scene -->
     <a-scene 
         renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true;"
         webxr="optionalFeatures: dom-overlay, hit-test, immersive-ar; overlayElement: #overlay; requiredFeatures: local-floor"
-        vr-mode-ui="enabled: true"
+        vr-mode-ui="enabled: false"
         background="color: transparent">
         
         <a-sky color="#000000" opacity="0"></a-sky>
@@ -70,32 +73,43 @@
         <a-light type="directional" intensity="1.5" position="-1 2 1"></a-light>
 
         <a-assets>
-            <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="shader: flat; color: #00aaff; opacity: 1.0; depthTest: false"></a-mixin>
-            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="shader: flat; color: #ff3333; opacity: 1.0; depthTest: false"></a-mixin>
+            <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="shader: flat; color: #00aaff; opacity: 1.0; depthTest: false; transparent: true"></a-mixin>
+            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="shader: flat; color: #ff3333; opacity: 1.0; depthTest: false; transparent: true"></a-mixin>
         </a-assets>
 
         <!-- LOCAL PLAYER -->
-        <a-entity id="local-rig">
+        <!-- Added auto-spawn logic to ensure world is visible on start -->
+        <a-entity id="local-rig" auto-spawn>
             <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
             
-            <a-entity id="left-hand" laser-controls="hand: left" calibration-listener></a-entity>
+            <a-entity id="left-hand" oculus-touch-controls="hand: left" calibration-listener></a-entity>
             
-            <!-- Right Hand: Has the tether line to find the world -->
-            <a-entity id="right-hand" laser-controls="hand: right" calibration-listener>
-                <a-entity line="start: 0 0 0; end: 0 0 -10; color: lime; opacity: 0.5" id="guideline"></a-entity>
+            <!-- Right Hand: Visual Debugger -->
+            <!-- Using oculus-touch-controls directly to ensure buttons work -->
+            <a-entity id="right-hand" oculus-touch-controls="hand: right" calibration-listener>
+                
+                <!-- DEBUG: Red Sphere (Proof of Rendering) -->
+                <a-sphere radius="0.05" color="red" material="shader: flat; depthTest: false" position="0 0 0"></a-sphere>
+                
+                <!-- DEBUG: Compass Arrow (Points to World) -->
+                <a-cone id="compass-arrow" radius-bottom="0.02" radius-top="0" height="0.2" color="lime" material="shader: flat; depthTest: false" position="0 0.15 0" rotation="90 0 0"></a-cone>
+                <a-text value="Find World" position="0 0.25 0" align="center" scale="0.2 0.2 0.2" color="lime" material="shader: flat; depthTest: false"></a-text>
+
             </a-entity>
         </a-entity>
 
 
         <!-- WORLD ROOT -->
-        <!-- Start slightly forward and up so it's likely in view -->
-        <a-entity id="world-root" position="0 1.5 -1">
+        <a-entity id="world-root" position="0 0 -2">
+            
+            <!-- GIANT FLOOR GRID (Impossible to miss) -->
+            <a-gridhelper size="20" divisions="20" colorCenterLine="yellow" colorGrid="white" position="0 0 0"></a-gridhelper>
             
             <!-- Visual Marker -->
             <a-entity id="calibration-marker" visible="true">
-                <a-box position="0 0 0" width="0.3" height="0.3" depth="0.3" material="shader: flat; color: yellow; opacity: 0.8; depthTest: false"></a-box>
-                <a-text value="SYNC CENTER" align="center" position="0 0.25 0" scale="0.5 0.5 0.5" color="yellow" material="shader: flat; depthTest: false"></a-text>
-                <a-cylinder height="0.01" radius="0.3" material="shader: flat; color: yellow; opacity: 0.3; depthTest: false"></a-cylinder>
+                <a-box position="0 0 0" width="0.3" height="0.3" depth="0.3" material="shader: flat; color: yellow; opacity: 0.8; depthTest: false; transparent: true"></a-box>
+                <a-text value="SYNC CENTER" align="center" position="0 0.4 0" scale="0.8 0.8 0.8" color="yellow" material="shader: flat; depthTest: false"></a-text>
+                <a-cylinder height="0.01" radius="0.5" material="shader: flat; color: yellow; opacity: 0.3; depthTest: false; transparent: true"></a-cylinder>
             </a-entity>
 
             <a-entity id="remote-players"></a-entity>
@@ -126,18 +140,16 @@
                 return `
                     <a-box material="shader: flat; color: #1a1a1a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
                     <a-cylinder material="shader: flat; color: #111" height="0.35" radius="0.015" rotation="90 0 0" position="0 0.02 -0.35"></a-cylinder>
-                    <a-box material="shader: flat; color: #222" depth="0.05" height="0.2" width="0.04" position="0 -0.12 -0.1" rotation="10 0 0"></a-box>
                 `; 
             } else {
                 return `
                     <a-box material="shader: flat; color: #2a2a2a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
-                    <a-box material="shader: flat; color: #8B4513" depth="0.2" height="0.06" width="0.055" position="0 0 -0.3"></a-box>
                     <a-cylinder material="shader: flat; color: #111" height="0.4" radius="0.012" rotation="90 0 0" position="0 0.02 -0.4"></a-cylinder>
                 `;
             }
         }
 
-        // --- 2. CONTROLS ---
+        // --- 2. CONTROLS & COMPASS ---
         AFRAME.registerComponent('calibration-listener', {
             init: function () {
                 this.el.addEventListener('triggerdown', this.syncToMarker.bind(this));
@@ -146,15 +158,15 @@
             },
             
             tick: function() {
-                // Update the Green Guideline to point to the world root
-                const guide = document.getElementById('guideline');
+                // Update Compass Arrow to point at World Root
+                const arrow = document.getElementById('compass-arrow');
                 const root = document.getElementById('world-root');
                 const hand = document.getElementById('right-hand');
-                if(guide && root && hand) {
-                    // Convert root position to hand local space is complex, 
-                    // simpler to just update line 'end' attribute in world space if using a-frame line component?
-                    // Actually, simpler: Put a sphere at world root.
-                    // The line is just a visual aid. Let's make it fixed length for now.
+                
+                if(arrow && root && hand) {
+                    const targetPos = new THREE.Vector3();
+                    root.object3D.getWorldPosition(targetPos);
+                    arrow.object3D.lookAt(targetPos);
                 }
             },
 
@@ -162,7 +174,6 @@
                 const worldRoot = document.getElementById('world-root');
                 const camera = document.getElementById('local-head');
                 
-                // Teleport World Root 1m in front of camera
                 const camPos = new THREE.Vector3();
                 const camQuat = new THREE.Quaternion();
                 camera.object3D.getWorldPosition(camPos);
@@ -173,11 +184,10 @@
                 direction.y = 0; 
                 
                 const newPos = new THREE.Vector3().copy(camPos).add(direction);
-                newPos.y = camPos.y; // Keep height relative to head
+                newPos.y = camPos.y - 1.0; // Place Grid on floor (approx 1m below head)
                 
                 worldRoot.object3D.position.copy(newPos);
                 
-                // Rotate to face user
                 const euler = new THREE.Euler().setFromQuaternion(camQuat, 'YXZ');
                 worldRoot.object3D.rotation.set(0, euler.y, 0);
 
@@ -203,7 +213,21 @@
             }
         });
 
-        // --- 3. NETWORK SYNC ---
+        // --- 3. AUTO SPAWN (Backup) ---
+        AFRAME.registerComponent('auto-spawn', {
+            init: function() {
+                const scene = this.el.sceneEl;
+                scene.addEventListener('enter-vr', () => {
+                    setTimeout(() => {
+                        const evt = new CustomEvent('abuttondown'); // Fake press 'A'
+                        const hand = document.getElementById('right-hand');
+                        if(hand) hand.dispatchEvent(evt);
+                    }, 2000);
+                });
+            }
+        });
+
+        // --- 4. NETWORK SYNC ---
         AFRAME.registerComponent('network-sync', {
             init: function() { this.lastTime = 0; },
             tick: function () {
@@ -246,7 +270,7 @@
             }
         });
 
-        // --- 4. STARTUP ---
+        // --- 5. STARTUP ---
         function initFirebase() {
             if (!firebase.apps.length) {
                 try {
@@ -263,7 +287,6 @@
             document.getElementById('setup-controls').classList.add('hidden');
             document.getElementById('loading-text').classList.remove('hidden');
 
-            // 1. Launch AR
             const scene = document.querySelector('a-scene');
             if (navigator.xr) {
                 try {
@@ -278,7 +301,6 @@
                 }
             } else { scene.enterVR(); }
 
-            // 2. Auth & Spawn
             if (!initFirebase()) return;
             try {
                 const userCred = await auth.signInAnonymously();
@@ -288,16 +310,29 @@
                 // Local Weapon
                 const hand = document.getElementById('right-hand');
                 while (hand.firstChild) { hand.removeChild(hand.firstChild); }
+                
+                // Add Debug Sphere & Compass
+                const sphere = document.createElement('a-sphere');
+                sphere.setAttribute('radius', '0.05');
+                sphere.setAttribute('color', 'red');
+                sphere.setAttribute('material', 'shader: flat; depthTest: false');
+                hand.appendChild(sphere);
+
+                const arrow = document.createElement('a-cone');
+                arrow.setAttribute('id', 'compass-arrow');
+                arrow.setAttribute('radius-bottom', '0.02');
+                arrow.setAttribute('radius-top', '0');
+                arrow.setAttribute('height', '0.2');
+                arrow.setAttribute('color', 'lime');
+                arrow.setAttribute('rotation', '90 0 0'); // Point forward initially
+                arrow.setAttribute('material', 'shader: flat; depthTest: false');
+                hand.appendChild(arrow);
+                
+                // Then Add Weapon
                 const weapon = document.createElement('a-entity');
                 weapon.innerHTML = getWeaponContent(team);
                 weapon.setAttribute('rotation', '-10 0 0');
                 hand.appendChild(weapon);
-
-                // Add Guide Line to Right Hand
-                const line = document.createElement('a-entity');
-                line.setAttribute('id', 'guideline');
-                line.setAttribute('line', 'start: 0 0 0; end: 0 0 -1; color: lime');
-                hand.appendChild(line);
 
                 await db.collection('players').doc(currentUserId).set({
                     team: team, x:0, y:0, z:0, active: true,
@@ -321,7 +356,7 @@
             }
         }
 
-        // --- 5. REMOTE ---
+        // --- 6. REMOTE ---
         function createRemotePlayer(id, data) {
             const container = document.getElementById('remote-players');
             const el = document.createElement('a-entity');
