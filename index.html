@@ -50,45 +50,43 @@
         </div>
         
         <div id="setup-controls">
-            <button class="btn btn-blue" onclick="startSession('blue')">Join Blue Team (M4)</button>
-            <button class="btn btn-red" onclick="startSession('red')">Join Red Team (AK47)</button>
+            <button class="btn btn-blue" onclick="startAR('blue')">Join Blue Team (M4)</button>
+            <button class="btn btn-red" onclick="startAR('red')">Join Red Team (AK47)</button>
         </div>
-        <p id="loading-text" class="hidden">Starting AR Session...</p>
+        <p id="loading-text" class="hidden">Requesting AR Session...</p>
     </div>
 
     <div id="status">Hold Right Controller on Marker & Pull Trigger</div>
 
     <!-- 3D Scene -->
-    <!-- renderer="alpha: true" is CRITICAL for Passthrough -->
-    <!-- vr-mode-ui="enabled: false" hides the default button so we use our custom one -->
+    <!-- Note: We use a transparent background and hidden VR UI to force our own flow -->
     <a-scene 
-        renderer="alpha: true; antialias: true; colorManagement: true;"
+        renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true;"
         webxr="optionalFeatures: dom-overlay, hit-test; overlayElement: #status; requiredFeatures: local-floor"
         vr-mode-ui="enabled: false"
         background="color: transparent">
         
         <a-assets>
+            <!-- Blue Diamond (Static, pointing down logic handled in entity) -->
             <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="color: #00aaff; shader: flat; opacity: 0.9"></a-mixin>
-            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="color: #ff3333; shader: flat; opacity: 0.9" rotation="180 0 0"></a-mixin>
+            <!-- Red Triangle (Points Down) -->
+            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="color: #ff3333; shader: flat; opacity: 0.9"></a-mixin>
         </a-assets>
 
         <!-- LOCAL PLAYER RIG -->
-        <!-- We do not move this. This aligns with the physical Quest tracking space. -->
         <a-entity id="local-rig">
             <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
             
             <a-entity id="left-hand" laser-controls="hand: left" raycaster="showLine: false"></a-entity>
             
-            <!-- Right Hand (Weapon Hand + Calibration) -->
+            <!-- Right Hand (Weapon + Calibration) -->
             <a-entity id="right-hand" laser-controls="hand: right" calibration-listener raycaster="showLine: false">
-                <!-- Local Weapon will be spawned here -->
+                <!-- Weapon spawned here -->
             </a-entity>
         </a-entity>
 
 
-        <!-- WORLD ROOT -->
-        <!-- This container MOVES to align with the real world marker. -->
-        <!-- All networked players exist inside this container. -->
+        <!-- WORLD ROOT (The Anchor) -->
         <a-entity id="world-root" position="0 0 0">
             
             <!-- Calibration Visual Marker -->
@@ -99,28 +97,41 @@
                 <a-arrow direction="0 0 -1" length="0.5" color="yellow"></a-arrow>
             </a-entity>
 
-            <!-- Remote Players Container -->
+            <!-- Remote Players -->
             <a-entity id="remote-players"></a-entity>
 
         </a-entity>
 
+        <!-- SYNC SYSTEM (Custom component to handle per-frame updates) -->
+        <a-entity id="sync-system" network-sync></a-entity>
+
     </a-scene>
 
     <script>
-        // --- 0. WEAPON GENERATOR ---
-        // Generates the geometry string for both local and remote players
+        // --- 0. CONFIG ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
+            authDomain: "zioneye-prototype.firebaseapp.com",
+            projectId: "zioneye-prototype",
+            storageBucket: "zioneye-prototype.firebasestorage.app",
+            messagingSenderId: "356865086206",
+            appId: "1:356865086206:web:d611c8deb6a98070dc0baf",
+            measurementId: "G-P1XL9VQN79"
+        };
+
+        let db, auth, currentUserId, myTeam = null;
+
+        // --- 1. WEAPON MODELS ---
         function getWeaponContent(team) {
             if (team === 'blue') {
-                // M4 Carbine
                 return `
                     <a-box color="#1a1a1a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
                     <a-cylinder color="#111" height="0.35" radius="0.015" rotation="90 0 0" position="0 0.02 -0.35"></a-cylinder>
                     <a-box color="#222" depth="0.05" height="0.2" width="0.04" position="0 -0.12 -0.1" rotation="10 0 0"></a-box>
                     <a-box color="#111" depth="0.15" height="0.1" width="0.04" position="0 -0.05 0.2"></a-box>
-                    <a-box color="#444" depth="0.1" height="0.04" width="0.04" position="0 0.08 -0.1"></a-box> <!-- Scope -->
+                    <a-box color="#444" depth="0.1" height="0.04" width="0.04" position="0 0.08 -0.1"></a-box>
                 `; 
             } else {
-                // AK47
                 return `
                     <a-box color="#2a2a2a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
                     <a-box color="#8B4513" depth="0.2" height="0.06" width="0.055" position="0 0 -0.3"></a-box>
@@ -131,7 +142,7 @@
             }
         }
 
-        // --- 1. CALIBRATION LOGIC ---
+        // --- 2. CALIBRATION (ONE-TIME SNAP) ---
         AFRAME.registerComponent('calibration-listener', {
             init: function () {
                 this.el.addEventListener('triggerdown', this.calibrate.bind(this));
@@ -140,43 +151,80 @@
                 const worldRoot = document.getElementById('world-root');
                 const controller = this.el.object3D;
                 
-                // 1. Position: Move world root to controller tip
-                const pos = controller.position;
-                worldRoot.object3D.position.set(pos.x, pos.y, pos.z);
+                // Force update to get latest matrix
+                controller.updateMatrixWorld(true);
                 
-                // 2. Rotation: Align world Y-rotation to controller, keep X/Z flat
-                // This ensures "Forward" is where you are pointing
+                // Snap World Root to Controller
+                const pos = controller.position;
                 const rot = controller.rotation;
-                worldRoot.object3D.rotation.set(0, rot.y, 0);
+                
+                worldRoot.object3D.position.set(pos.x, pos.y, pos.z);
+                worldRoot.object3D.rotation.set(0, rot.y, 0); // Yaw align only
 
-                // Feedback
+                // Visual Feedback
                 const status = document.getElementById('status');
-                status.innerText = "Synced! World Origin Set.";
+                status.innerText = "Synced! World moved to Marker.";
                 status.style.color = "lime";
                 
+                // Flash Marker
                 const marker = document.getElementById('calibration-marker');
                 marker.setAttribute('visible', 'true');
-                
-                // Force an update immediately so friends see us move relative to new center
-                if(window.forceUpdate) window.forceUpdate();
             }
         });
 
-        // --- 2. FIREBASE & APP LOGIC ---
-        
-        // PASTE YOUR FIREBASE CONFIG HERE
-        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-        const firebaseConfig = {
-          apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
-          authDomain: "zioneye-prototype.firebaseapp.com",
-          projectId: "zioneye-prototype",
-          storageBucket: "zioneye-prototype.firebasestorage.app",
-          messagingSenderId: "356865086206",
-          appId: "1:356865086206:web:d611c8deb6a98070dc0baf",
-          measurementId: "G-P1XL9VQN79"
-        };
+        // --- 3. NETWORK SYNC SYSTEM (The "Tick" Loop) ---
+        // This runs every frame (90/72 times a second) ensuring fresh data
+        AFRAME.registerComponent('network-sync', {
+            tick: function () {
+                if (!currentUserId || !db) return;
 
-        let db, auth, currentUserId, myTeam = null;
+                // Throttle sending to ~10 times per second to save bandwidth/DB costs
+                // (High freq tick is for reading inputs, we limit the send rate)
+                const now = Date.now();
+                if (now - this.lastTime < 100) return; 
+                this.lastTime = now;
+
+                const head = document.getElementById('local-head');
+                const hand = document.getElementById('right-hand');
+                const worldRoot = document.getElementById('world-root');
+
+                // Force Matrix Updates to ensure we aren't using stale data
+                head.object3D.updateMatrixWorld(true);
+                hand.object3D.updateMatrixWorld(true);
+                worldRoot.object3D.updateMatrixWorld(true);
+
+                // --- MATH: Calculate Local Position Relative to Anchor ---
+                // We multiply the World Root's Inverse Matrix by the Object's World Matrix
+                const rootInv = new THREE.Matrix4().copy(worldRoot.object3D.matrixWorld).invert();
+                
+                // Head
+                const headWorld = head.object3D.matrixWorld;
+                const headRel = new THREE.Matrix4().multiplyMatrices(rootInv, headWorld);
+                const hPos = new THREE.Vector3(); const hQuat = new THREE.Quaternion(); const hScale = new THREE.Vector3();
+                headRel.decompose(hPos, hQuat, hScale);
+                const hRot = new THREE.Euler().setFromQuaternion(hQuat);
+
+                // Hand
+                const handWorld = hand.object3D.matrixWorld;
+                const handRel = new THREE.Matrix4().multiplyMatrices(rootInv, handWorld);
+                const wPos = new THREE.Vector3(); const wQuat = new THREE.Quaternion(); const wScale = new THREE.Vector3();
+                handRel.decompose(wPos, wQuat, wScale);
+                const wRot = new THREE.Euler().setFromQuaternion(wQuat);
+
+                // Send to DB
+                db.collection('players').doc(currentUserId).update({
+                    x: hPos.x, y: hPos.y, z: hPos.z,
+                    rotX: hRot.x, rotY: hRot.y, rotZ: hRot.z,
+                    
+                    handX: wPos.x, handY: wPos.y, handZ: wPos.z,
+                    handRotX: wRot.x, handRotY: wRot.y, handRotZ: wRot.z,
+                    
+                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        });
+
+        // --- 4. SESSION START & LOGIC ---
 
         function initFirebase() {
             if (!firebase.apps.length) {
@@ -192,47 +240,66 @@
             return true;
         }
 
-        async function startSession(team) {
+        async function startAR(team) {
             if (!initFirebase()) return;
             
             document.getElementById('setup-controls').classList.add('hidden');
             document.getElementById('loading-text').classList.remove('hidden');
 
             try {
-                // 1. Authenticate
+                // Auth
                 const userCred = await auth.signInAnonymously();
                 currentUserId = userCred.user.uid;
                 myTeam = team;
 
-                // 2. Spawn Local Weapon
+                // Spawn Local Weapon
                 const hand = document.getElementById('right-hand');
                 const weapon = document.createElement('a-entity');
                 weapon.innerHTML = getWeaponContent(team);
                 weapon.setAttribute('rotation', '-10 0 0');
                 hand.appendChild(weapon);
 
-                // 3. Init Database Record
+                // Init DB
                 await db.collection('players').doc(currentUserId).set({
                     team: team,
-                    x: 0, y: 0, z: 0, rotY: 0, // Head
-                    handX: 0, handY: 0, handZ: 0, // Hand Position
-                    handRotX: 0, handRotY: 0, handRotZ: 0, // Hand Rotation
+                    x: 0, y: 0, z: 0, rotY: 0,
                     active: true,
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
-                // 4. Start Network Loop
-                startGameLoop(); 
-                
+                // Listen for Remote Players
+                db.collection('players').onSnapshot(snapshot => {
+                    snapshot.docChanges().forEach(change => {
+                        if (change.doc.id === currentUserId) return;
+                        if (change.type === 'added') createRemotePlayer(change.doc.id, change.doc.data());
+                        if (change.type === 'modified') updateRemotePlayer(change.doc.id, change.doc.data());
+                        if (change.type === 'removed') removeRemotePlayer(change.doc.id);
+                    });
+                });
+
                 document.getElementById('overlay').classList.add('hidden');
+
+                // --- CRITICAL PASSTHROUGH FIX ---
+                // We use standard A-Frame enterVR() but since we didn't add vr-mode-ui,
+                // and the scene is configured for AR, A-Frame should try AR.
+                // However, on Quest, sometimes explicit immersive-ar is safer.
+                // The 'webxr' component on <a-scene> handles this mostly.
+                // We force background clear.
                 
-                // 5. Enter AR Mode explicitly
                 const scene = document.querySelector('a-scene');
-                // We use enterVR() but because we configured webxr="optionalFeatures: dom-overlay..." 
-                // and the scene renderer="alpha: true", it should trigger AR if available.
-                // To be safe, we can request specific session mode if A-Frame 1.5.0 supports it directly via API,
-                // but standard enterVR() with the right scene config usually works on Quest 3.
-                scene.enterVR();
+                
+                // This checks if AR is available and launches it
+                if (navigator.xr) {
+                    const isArSupported = await navigator.xr.isSessionSupported('immersive-ar');
+                    if (isArSupported) {
+                        // We rely on A-Frame to handle the session creation
+                        scene.enterVR(); 
+                    } else {
+                        alert("AR not supported on this device/browser.");
+                    }
+                } else {
+                    scene.enterVR(); // Fallback
+                }
 
             } catch (error) {
                 console.error("Error:", error);
@@ -240,98 +307,37 @@
             }
         }
 
-        function startGameLoop() {
-            const head = document.getElementById('local-head');
-            const hand = document.getElementById('right-hand');
-            const worldRoot = document.getElementById('world-root');
-
-            window.forceUpdate = () => {
-                // This function calculates local position RELATIVE to the World Root
-                // and sends it to Firebase.
-                
-                if(!currentUserId) return;
-
-                // Inverse World Root Matrix (The "Anchor")
-                const rootInv = new THREE.Matrix4().copy(worldRoot.object3D.matrixWorld).invert();
-                
-                // A. HEAD TRANSFORM
-                const headWorld = head.object3D.matrixWorld;
-                const headRel = new THREE.Matrix4().multiplyMatrices(rootInv, headWorld);
-                const hPos = new THREE.Vector3(); const hQuat = new THREE.Quaternion(); const hScale = new THREE.Vector3();
-                headRel.decompose(hPos, hQuat, hScale);
-                const hRot = new THREE.Euler().setFromQuaternion(hQuat);
-
-                // B. HAND TRANSFORM (For Weapon)
-                const handWorld = hand.object3D.matrixWorld;
-                const handRel = new THREE.Matrix4().multiplyMatrices(rootInv, handWorld);
-                const wPos = new THREE.Vector3(); const wQuat = new THREE.Quaternion(); const wScale = new THREE.Vector3();
-                handRel.decompose(wPos, wQuat, wScale);
-                const wRot = new THREE.Euler().setFromQuaternion(wQuat);
-
-                db.collection('players').doc(currentUserId).update({
-                    x: hPos.x, y: hPos.y, z: hPos.z,
-                    rotX: hRot.x, rotY: hRot.y, rotZ: hRot.z,
-                    
-                    handX: wPos.x, handY: wPos.y, handZ: wPos.z,
-                    handRotX: wRot.x, handRotY: wRot.y, handRotZ: wRot.z,
-                    
-                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            };
-
-            // Run loop at 20Hz (50ms)
-            setInterval(window.forceUpdate, 50);
-
-            // Listen for updates
-            db.collection('players').onSnapshot(snapshot => {
-                snapshot.docChanges().forEach(change => {
-                    if (change.doc.id === currentUserId) return;
-                    if (change.type === 'added') createRemotePlayer(change.doc.id, change.doc.data());
-                    if (change.type === 'modified') updateRemotePlayer(change.doc.id, change.doc.data());
-                    if (change.type === 'removed') removeRemotePlayer(change.doc.id);
-                });
-            });
-        }
+        // --- 5. REMOTE PLAYER VISUALS ---
 
         function createRemotePlayer(id, data) {
             const container = document.getElementById('remote-players');
             const el = document.createElement('a-entity');
             el.setAttribute('id', `player-${id}`);
 
-            // 1. Team Indicator
+            // 1. Team Indicator (Static, No Animation)
             const indicator = document.createElement('a-entity');
-            indicator.setAttribute('position', '0 0.5 0'); // Float above head
-            indicator.setAttribute('animation', 'property: rotation; to: 0 360 0; loop: true; dur: 4000; easing: linear');
             
+            // NOTE: We don't animate rotation anymore.
             if (data.team === 'blue') {
                 indicator.setAttribute('mixin', 'blue-indicator');
-                // I am Red? I cannot see Blue (Stealth)
+                indicator.setAttribute('position', '0 0.5 0'); // Above head
+                // Blue Diamond - Static
                 if (myTeam === 'red') indicator.setAttribute('visible', false);
             } else {
                 indicator.setAttribute('mixin', 'red-indicator');
-                // Everyone sees Red
+                indicator.setAttribute('position', '0 0.5 0'); // Above head
+                // Red Triangle - Points DOWN
+                // The mixin has "180 0 0" rotation already, so the cone tip points down.
                 indicator.setAttribute('visible', true);
             }
             el.appendChild(indicator);
 
-            // 2. Weapon (Attached to a Hand Entity)
+            // 2. Weapon
             const handEnt = document.createElement('a-entity');
             handEnt.classList.add('remote-hand');
-            
             const weaponEnt = document.createElement('a-entity');
-            weaponEnt.innerHTML = getWeaponContent(data.team); // Generate matching gun
-            weaponEnt.setAttribute('rotation', '-10 0 0'); // Standard tilt
-            
-            // Visibility Logic: If I am Red, I can see Blue's gun? Usually yes, even if indicator is hidden.
-            // But user said: "Blue team can't see AK47...". 
-            // If the indicator is hidden, maybe the gun should be too? 
-            // "Blue Team members can see the indicator of Red Team members, but not the other way around."
-            // This usually implies "Stealth". 
-            // Current Logic: 
-            // - Blue sees Red (Indicator + Gun)
-            // - Red sees Blue (Gun only? Or nothing?) 
-            // Let's assume Guns are always visible for physical realism, only indicators are HUD elements.
-            
+            weaponEnt.innerHTML = getWeaponContent(data.team);
+            weaponEnt.setAttribute('rotation', '-10 0 0');
             handEnt.appendChild(weaponEnt);
             el.appendChild(handEnt);
 
@@ -341,54 +347,28 @@
         function updateRemotePlayer(id, data) {
             const el = document.getElementById(`player-${id}`);
             if (el) {
-                // Update Head/Indicator Position (The main entity is the "Head" anchor)
-                el.object3D.position.set(data.x, data.y, data.z);
-                el.object3D.rotation.set(data.rotX, data.rotY, data.rotZ);
-
-                // Update Hand/Weapon Position (Separate entity inside the player)
+                // IMPORTANT: The parent 'el' stays at 0,0,0 relative to world-root
+                // We move the parts individually based on the data
+                
+                // Move Indicator (Head HUD)
+                if (el.childNodes[0]) {
+                     el.childNodes[0].object3D.position.set(data.x, data.y, data.z);
+                     // We sync rotation so the indicator can turn with the head? 
+                     // Or keep it billboarded? User asked for "static".
+                     // Ideally it follows head rotation Y (Yaw) but stays upright.
+                     el.childNodes[0].object3D.rotation.set(0, data.rotY, 0); 
+                     
+                     // If it's the Red Triangle (Cone), we need to maintain the 180 flip
+                     if (data.team !== 'blue') {
+                        el.childNodes[0].object3D.rotation.x = Math.PI; // Keep pointing down
+                     }
+                }
+                
+                // Move Hand (Weapon)
                 const hand = el.querySelector('.remote-hand');
                 if (hand && data.handX !== undefined) {
-                    // Hand position must be relative to the Player Entity?
-                    // NO. The data sent (handX, handY) is relative to WORLD ROOT.
-                    // The 'el' (Player) is also relative to WORLD ROOT.
-                    // If we put 'hand' inside 'el', we must convert coords.
-                    // EASIER WAY: Put 'hand' at 0,0,0 inside 'el', but set its world matrix? No.
-                    
-                    // CORRECTION: 'el' represents the HEAD.
-                    // 'hand' is an independent position relative to World Root.
-                    // If 'hand' is a child of 'el', it inherits Head position. That's wrong.
-                    // We should Attach 'hand' to 'el' but offset it?
-                    // Or easier: Make 'el' a container at 0,0,0 (relative to parent), 
-                    // and put Head and Hand as children with their own coords.
-                    
-                    // REFACTORING updateRemotePlayer structure on the fly:
-                    // Currently 'el' is moved to Head Pos.
-                    // If I put Hand inside 'el', Hand is relative to Head.
-                    // But 'data.handX' is relative to World Root.
-                    
-                    // Math: HandLocalToHead = HeadWorldInverse * HandWorld
-                    // This is expensive to do every frame for every player.
-                    
-                    // BETTER APPROACH:
-                    // Make 'el' (the player wrapper) stay at 0,0,0 (or match World Root).
-                    // Move 'indicator' (child) to data.x/y/z.
-                    // Move 'hand' (child) to data.handX/handY/handZ.
-                    
-                    // Reset Wrapper to Identity if it was moved previously
-                    el.object3D.position.set(0, 0, 0);
-                    el.object3D.rotation.set(0, 0, 0);
-                    
-                    // Move Indicator (Head)
-                    if (el.childNodes[0]) { // Indicator is child 0
-                         el.childNodes[0].object3D.position.set(data.x, data.y, data.z);
-                         el.childNodes[0].object3D.rotation.set(data.rotX, data.rotY, data.rotZ);
-                    }
-                    
-                    // Move Hand
-                    if (hand) {
-                        hand.object3D.position.set(data.handX, data.handY, data.handZ);
-                        hand.object3D.rotation.set(data.handRotX, data.handRotY, data.handRotZ);
-                    }
+                    hand.object3D.position.set(data.handX, data.handY, data.handZ);
+                    hand.object3D.rotation.set(data.handRotX, data.handRotY, data.handRotZ);
                 }
             }
         }
