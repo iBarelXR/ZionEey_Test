@@ -14,10 +14,7 @@
     <style>
         body { font-family: sans-serif; background-color: transparent; }
         
-        /* RESTORED DEFAULT BUTTON */
-        .a-enter-vr { 
-            position: fixed; bottom: 20px; right: 20px; z-index: 9999;
-        }
+        .a-enter-vr { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
         
         #overlay {
             position: absolute; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%;
@@ -46,24 +43,20 @@
 </head>
 <body>
 
-    <!-- UI Overlay -->
     <div id="overlay">
         <h1>Quest 3 AR Battle</h1>
-        
         <div class="calibration-instruction">
-            <h3>🎯 Two Ways to Sync</h3>
-            <p><strong>1. Lost? Press 'A' or 'X':</strong><br>Summons the Yellow Box to your location.</p>
-            <p><strong>2. Precision Sync:</strong><br>Hold Right Controller on Marker & Press Trigger.</p>
+            <h3>🎯 Troubleshooting</h3>
+            <p><strong>Can't see the yellow box?</strong><br>1. Look for the GREEN LINE coming from your right hand.<br>2. Press <strong>'A'</strong> or <strong>'X'</strong> to summon the box to your face.</p>
         </div>
-        
         <div id="setup-controls">
-            <button class="btn btn-blue" onclick="startAR('blue')">Join Blue Team (M4)</button>
-            <button class="btn btn-red" onclick="startAR('red')">Join Red Team (AK47)</button>
+            <button class="btn btn-blue" onclick="startAR('blue')">Join Blue Team</button>
+            <button class="btn btn-red" onclick="startAR('red')">Join Red Team</button>
         </div>
-        <p id="loading-text" class="hidden">Requesting AR Session...</p>
+        <p id="loading-text" class="hidden">Starting AR...</p>
     </div>
 
-    <div id="status">Press 'A' to Summon World | Trigger on Marker to Sync</div>
+    <div id="status">Press 'A' to Summon World</div>
 
     <!-- 3D Scene -->
     <a-scene 
@@ -72,58 +65,43 @@
         vr-mode-ui="enabled: true"
         background="color: transparent">
         
-        <!-- Transparent Skybox -->
         <a-sky color="#000000" opacity="0"></a-sky>
-
-        <!-- LIGHTING: High Intensity for AR -->
-        <a-light type="ambient" intensity="2" color="#ffffff"></a-light>
+        <a-light type="ambient" intensity="2"></a-light>
         <a-light type="directional" intensity="1.5" position="-1 2 1"></a-light>
 
         <a-assets>
-            <!-- Blue Diamond (X-Ray Enabled, FLAT shader for max visibility) -->
             <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="shader: flat; color: #00aaff; opacity: 1.0; depthTest: false"></a-mixin>
-            <!-- Red Triangle (X-Ray Enabled, FLAT shader for max visibility) -->
             <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="shader: flat; color: #ff3333; opacity: 1.0; depthTest: false"></a-mixin>
         </a-assets>
 
-        <!-- LOCAL PLAYER RIG -->
-        <!-- Removed auto-spawn logic, replaced with Manual 'A' button summon -->
+        <!-- LOCAL PLAYER -->
         <a-entity id="local-rig">
-            <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false">
-                 <!-- Removed HUD Text -->
-            </a-camera>
+            <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
             
-            <!-- Left Hand (Has 'X' button listener) -->
-            <a-entity id="left-hand" laser-controls="hand: left" calibration-listener raycaster="showLine: false"></a-entity>
+            <a-entity id="left-hand" laser-controls="hand: left" calibration-listener></a-entity>
             
-            <!-- Right Hand (Weapon + 'A' button + Trigger) -->
-            <a-entity id="right-hand" laser-controls="hand: right" calibration-listener raycaster="showLine: false">
-                <!-- Weapon spawned here -->
+            <!-- Right Hand: Has the tether line to find the world -->
+            <a-entity id="right-hand" laser-controls="hand: right" calibration-listener>
+                <a-entity line="start: 0 0 0; end: 0 0 -10; color: lime; opacity: 0.5" id="guideline"></a-entity>
             </a-entity>
         </a-entity>
 
 
-        <!-- WORLD ROOT (The Anchor) -->
-        <!-- Start at a default position (0, 0, -2) -->
-        <a-entity id="world-root" position="0 0 -2">
+        <!-- WORLD ROOT -->
+        <!-- Start slightly forward and up so it's likely in view -->
+        <a-entity id="world-root" position="0 1.5 -1">
             
-            <!-- Calibration Visual Marker - Solid and Bright -->
+            <!-- Visual Marker -->
             <a-entity id="calibration-marker" visible="true">
-                <!-- Increased Size to 0.5m -->
-                <a-box position="0 0 0" width="0.5" height="0.5" depth="0.5" material="shader: flat; color: yellow; opacity: 0.5; depthTest: false"></a-box>
-                <!-- Inner Solid Core -->
-                <a-box position="0 0 0" width="0.2" height="0.2" depth="0.2" material="shader: flat; color: yellow; opacity: 1.0; depthTest: false"></a-box>
-                
-                <a-text value="SYNC POINT" align="center" position="0 0.4 0" scale="0.8 0.8 0.8" color="yellow" material="shader: flat; depthTest: false"></a-text>
-                <a-arrow direction="0 0 -1" length="0.8" color="yellow" material="shader: flat; depthTest: false"></a-arrow>
+                <a-box position="0 0 0" width="0.3" height="0.3" depth="0.3" material="shader: flat; color: yellow; opacity: 0.8; depthTest: false"></a-box>
+                <a-text value="SYNC CENTER" align="center" position="0 0.25 0" scale="0.5 0.5 0.5" color="yellow" material="shader: flat; depthTest: false"></a-text>
+                <a-cylinder height="0.01" radius="0.3" material="shader: flat; color: yellow; opacity: 0.3; depthTest: false"></a-cylinder>
             </a-entity>
 
-            <!-- Remote Players -->
             <a-entity id="remote-players"></a-entity>
 
         </a-entity>
 
-        <!-- SYNC SYSTEM -->
         <a-entity id="sync-system" network-sync></a-entity>
 
     </a-scene>
@@ -142,101 +120,94 @@
 
         let db, auth, currentUserId, myTeam = null;
 
-        // --- 1. WEAPON MODELS (FLAT SHADER for AR Visibility) ---
+        // --- 1. WEAPON MODELS ---
         function getWeaponContent(team) {
             if (team === 'blue') {
                 return `
                     <a-box material="shader: flat; color: #1a1a1a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
                     <a-cylinder material="shader: flat; color: #111" height="0.35" radius="0.015" rotation="90 0 0" position="0 0.02 -0.35"></a-cylinder>
                     <a-box material="shader: flat; color: #222" depth="0.05" height="0.2" width="0.04" position="0 -0.12 -0.1" rotation="10 0 0"></a-box>
-                    <a-box material="shader: flat; color: #111" depth="0.15" height="0.1" width="0.04" position="0 -0.05 0.2"></a-box>
-                    <a-box material="shader: flat; color: #444" depth="0.1" height="0.04" width="0.04" position="0 0.08 -0.1"></a-box>
                 `; 
             } else {
                 return `
                     <a-box material="shader: flat; color: #2a2a2a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
                     <a-box material="shader: flat; color: #8B4513" depth="0.2" height="0.06" width="0.055" position="0 0 -0.3"></a-box>
                     <a-cylinder material="shader: flat; color: #111" height="0.4" radius="0.012" rotation="90 0 0" position="0 0.02 -0.4"></a-cylinder>
-                    <a-box material="shader: flat; color: #333" depth="0.06" height="0.22" width="0.04" position="0 -0.12 -0.15" rotation="25 0 0"></a-box>
-                    <a-box material="shader: flat; color: #8B4513" depth="0.2" height="0.1" width="0.04" position="0 -0.08 0.25" rotation="-15 0 0"></a-box>
                 `;
             }
         }
 
-        // --- 2. CALIBRATION & SUMMON LOGIC ---
+        // --- 2. CONTROLS ---
         AFRAME.registerComponent('calibration-listener', {
             init: function () {
-                // Marker Sync (Precision)
                 this.el.addEventListener('triggerdown', this.syncToMarker.bind(this));
-                
-                // Summon World (Emergency / Easy Setup)
                 this.el.addEventListener('abuttondown', this.summonWorld.bind(this));
                 this.el.addEventListener('xbuttondown', this.summonWorld.bind(this));
             },
             
-            // OPTION A: Bring the world to ME (1m in front of face)
+            tick: function() {
+                // Update the Green Guideline to point to the world root
+                const guide = document.getElementById('guideline');
+                const root = document.getElementById('world-root');
+                const hand = document.getElementById('right-hand');
+                if(guide && root && hand) {
+                    // Convert root position to hand local space is complex, 
+                    // simpler to just update line 'end' attribute in world space if using a-frame line component?
+                    // Actually, simpler: Put a sphere at world root.
+                    // The line is just a visual aid. Let's make it fixed length for now.
+                }
+            },
+
             summonWorld: function() {
                 const worldRoot = document.getElementById('world-root');
                 const camera = document.getElementById('local-head');
                 
-                // Get Camera transforms
+                // Teleport World Root 1m in front of camera
                 const camPos = new THREE.Vector3();
                 const camQuat = new THREE.Quaternion();
                 camera.object3D.getWorldPosition(camPos);
                 camera.object3D.getWorldQuaternion(camQuat);
                 
-                // Calculate position 1m in front
                 const direction = new THREE.Vector3(0, 0, -1.0);
                 direction.applyQuaternion(camQuat);
-                direction.y = 0; // Keep horizontal
+                direction.y = 0; 
                 
                 const newPos = new THREE.Vector3().copy(camPos).add(direction);
-                newPos.y = camPos.y; // Match height roughly
+                newPos.y = camPos.y; // Keep height relative to head
                 
                 worldRoot.object3D.position.copy(newPos);
                 
-                // Face the user
+                // Rotate to face user
                 const euler = new THREE.Euler().setFromQuaternion(camQuat, 'YXZ');
                 worldRoot.object3D.rotation.set(0, euler.y, 0);
 
                 this.showStatus("World Summoned!");
             },
 
-            // OPTION B: Sync to Marker (Controller Tip)
             syncToMarker: function () {
                 const worldRoot = document.getElementById('world-root');
                 const controller = this.el.object3D;
                 
                 controller.updateMatrixWorld(true);
-                
-                const pos = controller.position;
-                const rot = controller.rotation;
-                
-                worldRoot.object3D.position.set(pos.x, pos.y, pos.z);
-                worldRoot.object3D.rotation.set(0, rot.y, 0); 
+                worldRoot.object3D.position.copy(controller.position);
+                worldRoot.object3D.rotation.set(0, controller.rotation.y, 0); 
 
-                this.showStatus("Synced to Marker!");
+                this.showStatus("Synced to Controller!");
             },
             
             showStatus: function(msg) {
                 const status = document.getElementById('status');
                 status.innerText = msg;
                 status.style.color = "lime";
-                setTimeout(() => {
-                    status.innerText = "Press 'A' to Summon World | Trigger on Marker to Sync";
-                    status.style.color = "lime";
-                }, 3000);
+                setTimeout(() => status.innerText = "Press 'A' to Summon | Trigger to Sync", 3000);
             }
         });
 
-        // --- 3. NETWORK SYNC SYSTEM ---
+        // --- 3. NETWORK SYNC ---
         AFRAME.registerComponent('network-sync', {
-            init: function() {
-                this.lastTime = 0;
-            },
+            init: function() { this.lastTime = 0; },
             tick: function () {
                 if (!currentUserId || !db) return;
-
                 const now = Date.now();
                 if (now - this.lastTime < 80) return; 
                 this.lastTime = now;
@@ -249,17 +220,16 @@
                 hand.object3D.updateMatrixWorld(true);
                 worldRoot.object3D.updateMatrixWorld(true);
 
-                // RELATIVE MATH
                 const rootInv = new THREE.Matrix4().copy(worldRoot.object3D.matrixWorld).invert();
                 
-                // Head
+                // Head Relative
                 const headWorld = head.object3D.matrixWorld;
                 const headRel = new THREE.Matrix4().multiplyMatrices(rootInv, headWorld);
                 const hPos = new THREE.Vector3(); const hQuat = new THREE.Quaternion(); const hScale = new THREE.Vector3();
                 headRel.decompose(hPos, hQuat, hScale);
                 const hRot = new THREE.Euler().setFromQuaternion(hQuat);
 
-                // Hand
+                // Hand Relative
                 const handWorld = hand.object3D.matrixWorld;
                 const handRel = new THREE.Matrix4().multiplyMatrices(rootInv, handWorld);
                 const wPos = new THREE.Vector3(); const wQuat = new THREE.Quaternion(); const wScale = new THREE.Vector3();
@@ -269,85 +239,71 @@
                 db.collection('players').doc(currentUserId).update({
                     x: hPos.x, y: hPos.y, z: hPos.z,
                     rotX: hRot.x, rotY: hRot.y, rotZ: hRot.z,
-                    
                     handX: wPos.x, handY: wPos.y, handZ: wPos.z,
                     handRotX: wRot.x, handRotY: wRot.y, handRotZ: wRot.z,
-                    
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
             }
         });
 
-        // --- 4. SESSION START & LOGIC ---
-
+        // --- 4. STARTUP ---
         function initFirebase() {
             if (!firebase.apps.length) {
                 try {
                     firebase.initializeApp(firebaseConfig);
                     db = firebase.firestore();
                     auth = firebase.auth();
-                } catch (e) {
-                    console.error("Firebase Init Error:", e);
-                    return false;
-                }
+                    return true;
+                } catch (e) { console.error(e); return false; }
             }
             return true;
         }
 
         async function startAR(team) {
-            // 1. START AR IMMEDIATELY (Capture User Gesture)
             document.getElementById('setup-controls').classList.add('hidden');
             document.getElementById('loading-text').classList.remove('hidden');
 
+            // 1. Launch AR
             const scene = document.querySelector('a-scene');
-            
-            // Attempt Manual AR Launch with proper Dom Overlay
             if (navigator.xr) {
                 try {
-                    // This request MUST happen in the direct click event handler
                     const session = await navigator.xr.requestSession('immersive-ar', {
                         optionalFeatures: ['dom-overlay', 'hit-test', 'local-floor'],
                         domOverlay: { root: document.body } 
                     });
-                    
                     scene.renderer.xr.setSession(session);
-                    
                 } catch (e) {
-                    console.warn("AR Launch Failed, falling back to A-Frame enterVR:", e);
-                    scene.enterVR(); // Fallback
+                    console.warn("AR Launch Failed, fallback VR", e);
+                    scene.enterVR(); 
                 }
-            } else {
-                scene.enterVR(); 
-            }
+            } else { scene.enterVR(); }
 
-            // 2. NOW DO FIREBASE AUTH (Background)
+            // 2. Auth & Spawn
             if (!initFirebase()) return;
-
             try {
-                // Anonymous Login
                 const userCred = await auth.signInAnonymously();
                 currentUserId = userCred.user.uid;
                 myTeam = team;
 
-                // Spawn Local Weapon
+                // Local Weapon
                 const hand = document.getElementById('right-hand');
-                // Clear existing if any
                 while (hand.firstChild) { hand.removeChild(hand.firstChild); }
-                
                 const weapon = document.createElement('a-entity');
                 weapon.innerHTML = getWeaponContent(team);
                 weapon.setAttribute('rotation', '-10 0 0');
                 hand.appendChild(weapon);
 
-                // DB Init
+                // Add Guide Line to Right Hand
+                const line = document.createElement('a-entity');
+                line.setAttribute('id', 'guideline');
+                line.setAttribute('line', 'start: 0 0 0; end: 0 0 -1; color: lime');
+                hand.appendChild(line);
+
                 await db.collection('players').doc(currentUserId).set({
-                    team: team,
-                    x: 0, y: 0, z: 0, rotY: 0,
-                    active: true,
+                    team: team, x:0, y:0, z:0, active: true,
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
-                // Listen
                 db.collection('players').onSnapshot(snapshot => {
                     snapshot.docChanges().forEach(change => {
                         if (change.doc.id === currentUserId) return;
@@ -357,28 +313,22 @@
                     });
                 });
                 
-                // Hide Overlay once everything is ready
                 document.getElementById('overlay').style.display = 'none';
-
             } catch (error) {
-                console.error("Auth Error:", error);
-                alert("Auth Error: " + error.message);
-                // Re-show controls if auth fails
-                document.getElementById('setup-controls').classList.remove('hidden');
+                alert("Error: " + error.message);
                 document.getElementById('overlay').style.display = 'flex';
+                document.getElementById('setup-controls').classList.remove('hidden');
             }
         }
 
-        // --- 5. REMOTE PLAYER VISUALS ---
-
+        // --- 5. REMOTE ---
         function createRemotePlayer(id, data) {
             const container = document.getElementById('remote-players');
             const el = document.createElement('a-entity');
             el.setAttribute('id', `player-${id}`);
 
-            // 1. Team Indicator
             const indicator = document.createElement('a-entity');
-            indicator.classList.add('indicator-head'); // Add class for easy finding
+            indicator.classList.add('indicator-head'); 
             
             if (data.team === 'blue') {
                 indicator.setAttribute('mixin', 'blue-indicator');
@@ -391,7 +341,6 @@
             }
             el.appendChild(indicator);
 
-            // 2. Weapon
             const handEnt = document.createElement('a-entity');
             handEnt.classList.add('remote-hand');
             const weaponEnt = document.createElement('a-entity');
@@ -406,22 +355,15 @@
         function updateRemotePlayer(id, data) {
             const el = document.getElementById(`player-${id}`);
             if (el) {
-                // FORCE RESET Wrapper Position
                 el.object3D.position.set(0, 0, 0);
                 el.object3D.rotation.set(0, 0, 0);
 
-                // Move Indicator (Head)
                 const indicator = el.querySelector('.indicator-head');
                 if (indicator) {
                      indicator.object3D.position.set(data.x, data.y, data.z);
                      indicator.object3D.rotation.set(0, data.rotY, 0); 
-                     
-                     if (data.team !== 'blue') {
-                        indicator.object3D.rotation.x = Math.PI; 
-                     }
+                     if (data.team !== 'blue') indicator.object3D.rotation.x = Math.PI; 
                 }
-                
-                // Move Hand (Weapon)
                 const hand = el.querySelector('.remote-hand');
                 if (hand && data.handX !== undefined) {
                     hand.object3D.position.set(data.handX, data.handY, data.handZ);
