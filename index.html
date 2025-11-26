@@ -14,8 +14,10 @@
     <style>
         body { font-family: sans-serif; background-color: transparent; }
         
-        /* FORCE HIDE DEFAULT VR BUTTON */
-        .a-enter-vr { display: none !important; }
+        /* RESTORED DEFAULT BUTTON (Just styled to be bottom right) */
+        .a-enter-vr { 
+            position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+        }
         
         #overlay {
             position: absolute; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%;
@@ -67,14 +69,13 @@
     <!-- 3D Scene -->
     <!-- 
       Changes:
-      - vr-mode-ui="enabled: false": Strictly disables A-Frame UI
-      - webxr: configured for 'immersive-ar'
-      - renderer: alpha: true for transparent background
+      - renderer: alpha: true (Vital for AR)
+      - webxr: Added 'immersive-ar' to optionalFeatures explicitly
     -->
     <a-scene 
         renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true;"
-        webxr="optionalFeatures: dom-overlay, hit-test; overlayElement: #overlay; requiredFeatures: local-floor"
-        vr-mode-ui="enabled: false"
+        webxr="optionalFeatures: dom-overlay, hit-test, immersive-ar; overlayElement: #overlay; requiredFeatures: local-floor"
+        vr-mode-ui="enabled: true"
         background="color: transparent">
         
         <!-- Transparent Skybox is ESSENTIAL for Passthrough -->
@@ -248,23 +249,54 @@
         }
 
         async function startAR(team) {
-            if (!initFirebase()) return;
-            
+            // 1. START AR IMMEDIATELY (Capture User Gesture)
             document.getElementById('setup-controls').classList.add('hidden');
             document.getElementById('loading-text').classList.remove('hidden');
 
+            const scene = document.querySelector('a-scene');
+            
+            // Attempt Manual AR Launch with proper Dom Overlay
+            if (navigator.xr) {
+                try {
+                    // This request MUST happen in the direct click event handler
+                    const session = await navigator.xr.requestSession('immersive-ar', {
+                        optionalFeatures: ['dom-overlay', 'hit-test', 'local-floor'],
+                        domOverlay: { root: document.body } 
+                    });
+                    
+                    // Force the session into the renderer
+                    // A-Frame 1.5.0+ handles this automatically if we use scene.enterVR() 
+                    // BUT for custom flows, we pass it to the renderer
+                    scene.renderer.xr.setSession(session);
+                    
+                } catch (e) {
+                    console.warn("AR Launch Failed, falling back to A-Frame enterVR:", e);
+                    scene.enterVR(); // Fallback
+                }
+            } else {
+                scene.enterVR(); 
+            }
+
+            // 2. NOW DO FIREBASE AUTH (Background)
+            if (!initFirebase()) return;
+
             try {
+                // Anonymous Login
                 const userCred = await auth.signInAnonymously();
                 currentUserId = userCred.user.uid;
                 myTeam = team;
 
                 // Spawn Local Weapon
                 const hand = document.getElementById('right-hand');
+                // Clear existing if any
+                while (hand.firstChild) { hand.removeChild(hand.firstChild); }
+                
                 const weapon = document.createElement('a-entity');
                 weapon.innerHTML = getWeaponContent(team);
                 weapon.setAttribute('rotation', '-10 0 0');
                 hand.appendChild(weapon);
 
+                // DB Init
                 await db.collection('players').doc(currentUserId).set({
                     team: team,
                     x: 0, y: 0, z: 0, rotY: 0,
@@ -272,6 +304,7 @@
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
+                // Listen
                 db.collection('players').onSnapshot(snapshot => {
                     snapshot.docChanges().forEach(change => {
                         if (change.doc.id === currentUserId) return;
@@ -280,37 +313,17 @@
                         if (change.type === 'removed') removeRemotePlayer(change.doc.id);
                     });
                 });
-
-                document.getElementById('overlay').classList.add('hidden');
-
-                const scene = document.querySelector('a-scene');
                 
-                // --- MANUAL AR SESSION START ---
-                // This is the cleanest way to force AR on Quest 3
-                if (navigator.xr) {
-                    try {
-                        // Request immersive-ar with dom-overlay
-                        const session = await navigator.xr.requestSession('immersive-ar', {
-                            optionalFeatures: ['dom-overlay', 'hit-test', 'local-floor'],
-                            domOverlay: { root: document.body } // Use body to include overlay/status
-                        });
-                        
-                        // Hand session to A-Frame
-                        scene.renderer.xr.setSession(session);
-                        
-                    } catch (e) {
-                        console.error("AR Request Failed:", e);
-                        alert("Could not start AR session: " + e.message);
-                        // Fallback
-                        scene.enterVR();
-                    }
-                } else {
-                    scene.enterVR(); 
-                }
+                // Hide Overlay once everything is ready
+                // Note: Dom overlay might use this div, so we just hide children
+                document.getElementById('overlay').style.display = 'none';
 
             } catch (error) {
-                console.error("Error:", error);
-                alert("Error: " + error.message);
+                console.error("Auth Error:", error);
+                alert("Auth Error: " + error.message);
+                // Re-show controls if auth fails
+                document.getElementById('setup-controls').classList.remove('hidden');
+                document.getElementById('overlay').style.display = 'flex';
             }
         }
 
@@ -352,12 +365,10 @@
             const el = document.getElementById(`player-${id}`);
             if (el) {
                 // FORCE RESET Wrapper Position
-                // This ensures the children (head/hand) which are set to absolute world coordinates
-                // appear in the right place.
                 el.object3D.position.set(0, 0, 0);
                 el.object3D.rotation.set(0, 0, 0);
 
-                // Move Indicator (Head) using class selector for safety
+                // Move Indicator (Head)
                 const indicator = el.querySelector('.indicator-head');
                 if (indicator) {
                      indicator.object3D.position.set(data.x, data.y, data.z);
