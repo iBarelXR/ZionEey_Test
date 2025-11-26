@@ -67,11 +67,6 @@
     <div id="status">Hold Right Controller on Marker & Pull Trigger</div>
 
     <!-- 3D Scene -->
-    <!-- 
-      Changes:
-      - renderer: alpha: true (Vital for AR)
-      - webxr: Added 'immersive-ar' to optionalFeatures explicitly
-    -->
     <a-scene 
         renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true;"
         webxr="optionalFeatures: dom-overlay, hit-test, immersive-ar; overlayElement: #overlay; requiredFeatures: local-floor"
@@ -80,6 +75,10 @@
         
         <!-- Transparent Skybox is ESSENTIAL for Passthrough -->
         <a-sky color="#000000" opacity="0"></a-sky>
+
+        <!-- LIGHTING: Essential for visibility in AR -->
+        <a-light type="ambient" intensity="1.5" color="#ffffff"></a-light>
+        <a-light type="directional" intensity="0.8" position="-1 2 1"></a-light>
 
         <a-assets>
             <!-- Blue Diamond (X-Ray Enabled) -->
@@ -102,13 +101,14 @@
 
 
         <!-- WORLD ROOT (The Anchor) -->
-        <a-entity id="world-root" position="0 0 0">
+        <!-- Default position moved to z = -1 so it appears IN FRONT of you, not inside you -->
+        <a-entity id="world-root" position="0 0 -1">
             
-            <!-- Calibration Visual Marker -->
+            <!-- Calibration Visual Marker - Made SOLID for visibility -->
             <a-entity id="calibration-marker" visible="true">
-                <a-box position="0 0 0" width="0.1" height="0.1" depth="0.1" color="yellow" wireframe="true"></a-box>
-                <a-text value="SYNC POINT" align="center" position="0 0.2 0" scale="0.3 0.3 0.3" color="yellow"></a-text>
-                <a-cylinder height="0.01" radius="0.2" color="yellow" opacity="0.3"></a-cylinder>
+                <a-box position="0 0 0" width="0.15" height="0.15" depth="0.15" color="yellow" opacity="0.6"></a-box>
+                <a-text value="SYNC POINT" align="center" position="0 0.25 0" scale="0.5 0.5 0.5" color="yellow"></a-text>
+                <a-cylinder height="0.01" radius="0.3" color="yellow" opacity="0.3"></a-cylinder>
                 <a-arrow direction="0 0 -1" length="0.5" color="yellow"></a-arrow>
             </a-entity>
 
