@@ -51,10 +51,9 @@
         <h1>Quest 3 AR Battle</h1>
         
         <div class="calibration-instruction">
-            <h3>🎯 Precision Calibration</h3>
-            <p>1. Stick a marker (QR Code or X) on a wall or table.</p>
-            <p>2. Hold your <strong>RIGHT Controller</strong> against the marker.</p>
-            <p>3. Press <strong>TRIGGER</strong> to snap the world to that point.</p>
+            <h3>🎯 Two Ways to Sync</h3>
+            <p><strong>1. Lost? Press 'A' or 'X':</strong><br>Summons the Yellow Box to your location.</p>
+            <p><strong>2. Precision Sync:</strong><br>Hold Right Controller on Marker & Press Trigger.</p>
         </div>
         
         <div id="setup-controls">
@@ -64,7 +63,7 @@
         <p id="loading-text" class="hidden">Requesting AR Session...</p>
     </div>
 
-    <div id="status">Hold Right Controller on Marker & Pull Trigger</div>
+    <div id="status">Press 'A' to Summon World | Trigger on Marker to Sync</div>
 
     <!-- 3D Scene -->
     <a-scene 
@@ -88,16 +87,16 @@
         </a-assets>
 
         <!-- LOCAL PLAYER RIG -->
-        <!-- Added auto-spawn component to ensure objects appear in front of you on start -->
-        <a-entity id="local-rig" auto-spawn>
+        <!-- Removed auto-spawn logic, replaced with Manual 'A' button summon -->
+        <a-entity id="local-rig">
             <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false">
-                 <!-- HUD TEST: Moved further away (-2m) to prevent "stuck to nose" feeling -->
-                 <a-text value="AR SYSTEM ONLINE" position="0 0.5 -2" scale="0.5 0.5 0.5" align="center" color="lime" material="shader: flat; depthTest: false"></a-text>
+                 <!-- Removed HUD Text -->
             </a-camera>
             
-            <a-entity id="left-hand" laser-controls="hand: left" raycaster="showLine: false"></a-entity>
+            <!-- Left Hand (Has 'X' button listener) -->
+            <a-entity id="left-hand" laser-controls="hand: left" calibration-listener raycaster="showLine: false"></a-entity>
             
-            <!-- Right Hand (Weapon + Calibration) -->
+            <!-- Right Hand (Weapon + 'A' button + Trigger) -->
             <a-entity id="right-hand" laser-controls="hand: right" calibration-listener raycaster="showLine: false">
                 <!-- Weapon spawned here -->
             </a-entity>
@@ -105,16 +104,18 @@
 
 
         <!-- WORLD ROOT (The Anchor) -->
-        <!-- Start at a default position, but auto-spawn will move this -->
-        <a-entity id="world-root" position="0 1.5 -1.5">
+        <!-- Start at a default position (0, 0, -2) -->
+        <a-entity id="world-root" position="0 0 -2">
             
             <!-- Calibration Visual Marker - Solid and Bright -->
             <a-entity id="calibration-marker" visible="true">
-                <!-- Added depthTest: false to see through walls/tables -->
+                <!-- Increased Size to 0.5m -->
+                <a-box position="0 0 0" width="0.5" height="0.5" depth="0.5" material="shader: flat; color: yellow; opacity: 0.5; depthTest: false"></a-box>
+                <!-- Inner Solid Core -->
                 <a-box position="0 0 0" width="0.2" height="0.2" depth="0.2" material="shader: flat; color: yellow; opacity: 1.0; depthTest: false"></a-box>
-                <a-text value="SYNC POINT" align="center" position="0 0.25 0" scale="0.5 0.5 0.5" color="yellow" material="shader: flat; depthTest: false"></a-text>
-                <a-cylinder height="0.01" radius="0.3" material="shader: flat; color: yellow; opacity: 0.3; depthTest: false"></a-cylinder>
-                <a-arrow direction="0 0 -1" length="0.5" color="yellow" material="shader: flat; depthTest: false"></a-arrow>
+                
+                <a-text value="SYNC POINT" align="center" position="0 0.4 0" scale="0.8 0.8 0.8" color="yellow" material="shader: flat; depthTest: false"></a-text>
+                <a-arrow direction="0 0 -1" length="0.8" color="yellow" material="shader: flat; depthTest: false"></a-arrow>
             </a-entity>
 
             <!-- Remote Players -->
@@ -162,52 +163,47 @@
             }
         }
 
-        // --- 2. AUTO-SPAWN (FIX FOR INVISIBLE OBJECTS) ---
-        AFRAME.registerComponent('auto-spawn', {
-            init: function() {
-                const scene = this.el.sceneEl;
-                scene.addEventListener('enter-vr', () => {
-                    // Wait a moment for headset to initialize position
-                    setTimeout(() => {
-                        const camera = document.getElementById('local-head');
-                        const worldRoot = document.getElementById('world-root');
-                        
-                        // Get Camera World Position/Rotation
-                        const camPos = new THREE.Vector3();
-                        const camQuat = new THREE.Quaternion();
-                        camera.object3D.getWorldPosition(camPos);
-                        camera.object3D.getWorldQuaternion(camQuat);
-                        
-                        // Calculate position 1.5 meters in front of user
-                        const direction = new THREE.Vector3(0, 0, -1.5);
-                        direction.applyQuaternion(camQuat);
-                        // Flatten Y so it spawns at eye level but horizontally
-                        direction.y = 0; 
-                        
-                        // New Position: CamPos + Direction
-                        const newPos = new THREE.Vector3().copy(camPos).add(direction);
-                        // Keep Y fixed at roughly eye level or relative to floor?
-                        // Let's keep it relative to camera height for visibility
-                        newPos.y = camPos.y; 
-
-                        // Move World Root
-                        worldRoot.object3D.position.copy(newPos);
-                        
-                        // Face the user (Yaw only)
-                        const euler = new THREE.Euler().setFromQuaternion(camQuat, 'YXZ');
-                        worldRoot.object3D.rotation.set(0, euler.y, 0);
-
-                    }, 2000); // 2 second delay to ensure tracking is stable
-                });
-            }
-        });
-
-        // --- 3. CALIBRATION ---
+        // --- 2. CALIBRATION & SUMMON LOGIC ---
         AFRAME.registerComponent('calibration-listener', {
             init: function () {
-                this.el.addEventListener('triggerdown', this.calibrate.bind(this));
+                // Marker Sync (Precision)
+                this.el.addEventListener('triggerdown', this.syncToMarker.bind(this));
+                
+                // Summon World (Emergency / Easy Setup)
+                this.el.addEventListener('abuttondown', this.summonWorld.bind(this));
+                this.el.addEventListener('xbuttondown', this.summonWorld.bind(this));
             },
-            calibrate: function () {
+            
+            // OPTION A: Bring the world to ME (1m in front of face)
+            summonWorld: function() {
+                const worldRoot = document.getElementById('world-root');
+                const camera = document.getElementById('local-head');
+                
+                // Get Camera transforms
+                const camPos = new THREE.Vector3();
+                const camQuat = new THREE.Quaternion();
+                camera.object3D.getWorldPosition(camPos);
+                camera.object3D.getWorldQuaternion(camQuat);
+                
+                // Calculate position 1m in front
+                const direction = new THREE.Vector3(0, 0, -1.0);
+                direction.applyQuaternion(camQuat);
+                direction.y = 0; // Keep horizontal
+                
+                const newPos = new THREE.Vector3().copy(camPos).add(direction);
+                newPos.y = camPos.y; // Match height roughly
+                
+                worldRoot.object3D.position.copy(newPos);
+                
+                // Face the user
+                const euler = new THREE.Euler().setFromQuaternion(camQuat, 'YXZ');
+                worldRoot.object3D.rotation.set(0, euler.y, 0);
+
+                this.showStatus("World Summoned!");
+            },
+
+            // OPTION B: Sync to Marker (Controller Tip)
+            syncToMarker: function () {
                 const worldRoot = document.getElementById('world-root');
                 const controller = this.el.object3D;
                 
@@ -219,16 +215,21 @@
                 worldRoot.object3D.position.set(pos.x, pos.y, pos.z);
                 worldRoot.object3D.rotation.set(0, rot.y, 0); 
 
+                this.showStatus("Synced to Marker!");
+            },
+            
+            showStatus: function(msg) {
                 const status = document.getElementById('status');
-                status.innerText = "Synced! World moved to Marker.";
+                status.innerText = msg;
                 status.style.color = "lime";
-                
-                const marker = document.getElementById('calibration-marker');
-                marker.setAttribute('visible', 'true');
+                setTimeout(() => {
+                    status.innerText = "Press 'A' to Summon World | Trigger on Marker to Sync";
+                    status.style.color = "lime";
+                }, 3000);
             }
         });
 
-        // --- 4. NETWORK SYNC SYSTEM ---
+        // --- 3. NETWORK SYNC SYSTEM ---
         AFRAME.registerComponent('network-sync', {
             init: function() {
                 this.lastTime = 0;
@@ -277,7 +278,7 @@
             }
         });
 
-        // --- 5. SESSION START & LOGIC ---
+        // --- 4. SESSION START & LOGIC ---
 
         function initFirebase() {
             if (!firebase.apps.length) {
@@ -368,7 +369,7 @@
             }
         }
 
-        // --- 6. REMOTE PLAYER VISUALS ---
+        // --- 5. REMOTE PLAYER VISUALS ---
 
         function createRemotePlayer(id, data) {
             const container = document.getElementById('remote-players');
