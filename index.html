@@ -59,15 +59,18 @@
     <div id="status">Hold Right Controller on Marker & Pull Trigger</div>
 
     <!-- 3D Scene -->
-    <!-- Note: We use a transparent background and hidden VR UI to force our own flow -->
+    <!-- Added explicit skybox with 0 opacity to ensure passthrough works -->
     <a-scene 
         renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true;"
-        webxr="optionalFeatures: dom-overlay, hit-test; overlayElement: #status; requiredFeatures: local-floor"
+        webxr="optionalFeatures: dom-overlay, hit-test, immersive-ar; overlayElement: #status; requiredFeatures: local-floor"
         vr-mode-ui="enabled: false"
         background="color: transparent">
         
+        <!-- Transparent Skybox for AR -->
+        <a-sky color="#000000" opacity="0"></a-sky>
+
         <a-assets>
-            <!-- Blue Diamond (Static, pointing down logic handled in entity) -->
+            <!-- Blue Diamond (Static) -->
             <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="color: #00aaff; shader: flat; opacity: 0.9"></a-mixin>
             <!-- Red Triangle (Points Down) -->
             <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="color: #ff3333; shader: flat; opacity: 0.9"></a-mixin>
@@ -102,7 +105,7 @@
 
         </a-entity>
 
-        <!-- SYNC SYSTEM (Custom component to handle per-frame updates) -->
+        <!-- SYNC SYSTEM -->
         <a-entity id="sync-system" network-sync></a-entity>
 
     </a-scene>
@@ -142,7 +145,7 @@
             }
         }
 
-        // --- 2. CALIBRATION (ONE-TIME SNAP) ---
+        // --- 2. CALIBRATION ---
         AFRAME.registerComponent('calibration-listener', {
             init: function () {
                 this.el.addEventListener('triggerdown', this.calibrate.bind(this));
@@ -151,50 +154,45 @@
                 const worldRoot = document.getElementById('world-root');
                 const controller = this.el.object3D;
                 
-                // Force update to get latest matrix
                 controller.updateMatrixWorld(true);
                 
-                // Snap World Root to Controller
                 const pos = controller.position;
                 const rot = controller.rotation;
                 
                 worldRoot.object3D.position.set(pos.x, pos.y, pos.z);
-                worldRoot.object3D.rotation.set(0, rot.y, 0); // Yaw align only
+                worldRoot.object3D.rotation.set(0, rot.y, 0); 
 
-                // Visual Feedback
                 const status = document.getElementById('status');
                 status.innerText = "Synced! World moved to Marker.";
                 status.style.color = "lime";
                 
-                // Flash Marker
                 const marker = document.getElementById('calibration-marker');
                 marker.setAttribute('visible', 'true');
             }
         });
 
-        // --- 3. NETWORK SYNC SYSTEM (The "Tick" Loop) ---
-        // This runs every frame (90/72 times a second) ensuring fresh data
+        // --- 3. NETWORK SYNC SYSTEM ---
         AFRAME.registerComponent('network-sync', {
+            init: function() {
+                // Initialize timestamp to ensure loop starts correctly
+                this.lastTime = 0;
+            },
             tick: function () {
                 if (!currentUserId || !db) return;
 
-                // Throttle sending to ~10 times per second to save bandwidth/DB costs
-                // (High freq tick is for reading inputs, we limit the send rate)
                 const now = Date.now();
-                if (now - this.lastTime < 100) return; 
+                if (now - this.lastTime < 80) return; // ~12 updates/sec
                 this.lastTime = now;
 
                 const head = document.getElementById('local-head');
                 const hand = document.getElementById('right-hand');
                 const worldRoot = document.getElementById('world-root');
 
-                // Force Matrix Updates to ensure we aren't using stale data
                 head.object3D.updateMatrixWorld(true);
                 hand.object3D.updateMatrixWorld(true);
                 worldRoot.object3D.updateMatrixWorld(true);
 
-                // --- MATH: Calculate Local Position Relative to Anchor ---
-                // We multiply the World Root's Inverse Matrix by the Object's World Matrix
+                // RELATIVE MATH
                 const rootInv = new THREE.Matrix4().copy(worldRoot.object3D.matrixWorld).invert();
                 
                 // Head
@@ -211,7 +209,6 @@
                 handRel.decompose(wPos, wQuat, wScale);
                 const wRot = new THREE.Euler().setFromQuaternion(wQuat);
 
-                // Send to DB
                 db.collection('players').doc(currentUserId).update({
                     x: hPos.x, y: hPos.y, z: hPos.z,
                     rotX: hRot.x, rotY: hRot.y, rotZ: hRot.z,
@@ -247,7 +244,6 @@
             document.getElementById('loading-text').classList.remove('hidden');
 
             try {
-                // Auth
                 const userCred = await auth.signInAnonymously();
                 currentUserId = userCred.user.uid;
                 myTeam = team;
@@ -259,7 +255,6 @@
                 weapon.setAttribute('rotation', '-10 0 0');
                 hand.appendChild(weapon);
 
-                // Init DB
                 await db.collection('players').doc(currentUserId).set({
                     team: team,
                     x: 0, y: 0, z: 0, rotY: 0,
@@ -267,7 +262,6 @@
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
-                // Listen for Remote Players
                 db.collection('players').onSnapshot(snapshot => {
                     snapshot.docChanges().forEach(change => {
                         if (change.doc.id === currentUserId) return;
@@ -279,31 +273,26 @@
 
                 document.getElementById('overlay').classList.add('hidden');
 
-                // --- CRITICAL PASSTHROUGH FIX ---
-                // We use standard A-Frame enterVR() but since we didn't add vr-mode-ui,
-                // and the scene is configured for AR, A-Frame should try AR.
-                // However, on Quest, sometimes explicit immersive-ar is safer.
-                // The 'webxr' component on <a-scene> handles this mostly.
-                // We force background clear.
-                
                 const scene = document.querySelector('a-scene');
                 
-                // This checks if AR is available and launches it
+                // FORCE AR SESSION
+                // We assume browser supports it if on Quest
                 if (navigator.xr) {
-                    const isArSupported = await navigator.xr.isSessionSupported('immersive-ar');
-                    if (isArSupported) {
-                        // We rely on A-Frame to handle the session creation
-                        scene.enterVR(); 
-                    } else {
-                        alert("AR not supported on this device/browser.");
-                    }
+                    // This explicitly asks for AR
+                    const session = await navigator.xr.requestSession('immersive-ar', {
+                        optionalFeatures: ['dom-overlay', 'hit-test', 'local-floor'],
+                        domOverlay: { root: document.getElementById('status') }
+                    });
+                    scene.renderer.xr.setSession(session);
                 } else {
-                    scene.enterVR(); // Fallback
+                    scene.enterVR(); 
                 }
 
             } catch (error) {
                 console.error("Error:", error);
-                alert("Error: " + error.message);
+                // Fallback if specific AR request fails
+                const scene = document.querySelector('a-scene');
+                scene.enterVR();
             }
         }
 
@@ -314,20 +303,18 @@
             const el = document.createElement('a-entity');
             el.setAttribute('id', `player-${id}`);
 
-            // 1. Team Indicator (Static, No Animation)
+            // 1. Team Indicator
             const indicator = document.createElement('a-entity');
             
-            // NOTE: We don't animate rotation anymore.
             if (data.team === 'blue') {
                 indicator.setAttribute('mixin', 'blue-indicator');
-                indicator.setAttribute('position', '0 0.5 0'); // Above head
-                // Blue Diamond - Static
+                indicator.setAttribute('position', '0 0.5 0'); 
+                // I am Red? I cannot see Blue (Stealth)
                 if (myTeam === 'red') indicator.setAttribute('visible', false);
             } else {
                 indicator.setAttribute('mixin', 'red-indicator');
-                indicator.setAttribute('position', '0 0.5 0'); // Above head
-                // Red Triangle - Points DOWN
-                // The mixin has "180 0 0" rotation already, so the cone tip points down.
+                indicator.setAttribute('position', '0 0.5 0'); 
+                // Everyone sees Red
                 indicator.setAttribute('visible', true);
             }
             el.appendChild(indicator);
@@ -347,20 +334,13 @@
         function updateRemotePlayer(id, data) {
             const el = document.getElementById(`player-${id}`);
             if (el) {
-                // IMPORTANT: The parent 'el' stays at 0,0,0 relative to world-root
-                // We move the parts individually based on the data
-                
-                // Move Indicator (Head HUD)
+                // Move Indicator (Head)
                 if (el.childNodes[0]) {
                      el.childNodes[0].object3D.position.set(data.x, data.y, data.z);
-                     // We sync rotation so the indicator can turn with the head? 
-                     // Or keep it billboarded? User asked for "static".
-                     // Ideally it follows head rotation Y (Yaw) but stays upright.
                      el.childNodes[0].object3D.rotation.set(0, data.rotY, 0); 
                      
-                     // If it's the Red Triangle (Cone), we need to maintain the 180 flip
                      if (data.team !== 'blue') {
-                        el.childNodes[0].object3D.rotation.x = Math.PI; // Keep pointing down
+                        el.childNodes[0].object3D.rotation.x = Math.PI; 
                      }
                 }
                 
