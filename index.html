@@ -13,9 +13,7 @@
 
     <style>
         body { font-family: sans-serif; background-color: transparent; }
-        
-        /* Hide Default VR Button to force our custom flow */
-        .a-enter-vr { display: none !important; }
+        .a-enter-vr { display: none !important; } /* Hide default button */
         
         #overlay {
             position: absolute; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%;
@@ -30,90 +28,67 @@
         .btn-blue { background: #0055ff; border-color: #002a80; }
         .btn-red { background: #d32f2f; border-color: #8e0000; }
         .hidden { display: none !important; }
-        #status { 
-            position: absolute; bottom: 20px; left: 20px; color: lime; 
-            z-index: 999; font-weight: bold; text-shadow: 1px 1px 2px black; font-family: monospace; font-size: 1.2em;
-            pointer-events: none;
-        }
-        .calibration-instruction {
-            background: rgba(255, 255, 0, 0.2);
-            border: 1px solid yellow;
-            padding: 10px; margin-bottom: 20px; border-radius: 5px; max-width: 80%;
-        }
+        
+        /* Debug Console in HTML (hidden in AR usually, but good for desktop) */
+        #html-console { position: absolute; bottom: 10px; left: 10px; color: yellow; z-index: 1001; font-size: 12px; text-align: left;}
     </style>
 </head>
 <body>
 
     <div id="overlay">
         <h1>Quest 3 AR Battle</h1>
-        <div class="calibration-instruction">
-            <h3>🎯 DEBUG MODE</h3>
-            <p><strong>1. Verify:</strong> Look for the 🔴 RED BALL on your Right Hand.</p>
-            <p><strong>2. Locate:</strong> Follow the 🟢 GREEN ARROW on your hand to find the world.</p>
-            <p><strong>3. Reset:</strong> Press <strong>'A'</strong> or <strong>'X'</strong> to bring the world to you.</p>
-        </div>
+        <p>1. Stand in center of room.<br>2. Click Team to Start.</p>
         <div id="setup-controls">
-            <button class="btn btn-blue" onclick="startAR('blue')">Join Blue Team</button>
-            <button class="btn btn-red" onclick="startAR('red')">Join Red Team</button>
+            <button class="btn btn-blue" onclick="startAR('blue')">Join Blue</button>
+            <button class="btn btn-red" onclick="startAR('red')">Join Red</button>
         </div>
-        <p id="loading-text" class="hidden">Starting AR...</p>
+        <p id="loading-text" class="hidden">Requesting AR...</p>
     </div>
 
-    <div id="status">Look for Red Ball on Hand</div>
+    <div id="html-console">Ready.</div>
 
     <!-- 3D Scene -->
+    <!-- REMOVED 'background' component entirely -->
+    <!-- ADDED ar-hit-test-listener for future expansion -->
     <a-scene 
-        renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true;"
+        renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true; physicallyCorrectLights: true;"
         webxr="optionalFeatures: dom-overlay, hit-test, immersive-ar; overlayElement: #overlay; requiredFeatures: local-floor"
-        vr-mode-ui="enabled: false"
-        background="color: transparent">
+        vr-mode-ui="enabled: false">
         
-        <a-sky color="#000000" opacity="0"></a-sky>
-        <a-light type="ambient" intensity="2"></a-light>
+        <!-- NO SKYBOX -->
+
+        <a-light type="ambient" intensity="1"></a-light>
         <a-light type="directional" intensity="1.5" position="-1 2 1"></a-light>
 
         <a-assets>
-            <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="shader: flat; color: #00aaff; opacity: 1.0; depthTest: false; transparent: true"></a-mixin>
-            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="shader: flat; color: #ff3333; opacity: 1.0; depthTest: false; transparent: true"></a-mixin>
+            <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="shader: flat; color: #00aaff; opacity: 1.0; depthTest: false"></a-mixin>
+            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="shader: flat; color: #ff3333; opacity: 1.0; depthTest: false"></a-mixin>
         </a-assets>
 
-        <!-- LOCAL PLAYER -->
-        <!-- Added auto-spawn logic to ensure world is visible on start -->
-        <a-entity id="local-rig" auto-spawn>
-            <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
-            
-            <a-entity id="left-hand" oculus-touch-controls="hand: left" calibration-listener></a-entity>
-            
-            <!-- Right Hand: Visual Debugger -->
-            <!-- Using oculus-touch-controls directly to ensure buttons work -->
-            <a-entity id="right-hand" oculus-touch-controls="hand: right" calibration-listener>
-                
-                <!-- DEBUG: Red Sphere (Proof of Rendering) -->
-                <a-sphere radius="0.05" color="red" material="shader: flat; depthTest: false" position="0 0 0"></a-sphere>
-                
-                <!-- DEBUG: Compass Arrow (Points to World) -->
-                <a-cone id="compass-arrow" radius-bottom="0.02" radius-top="0" height="0.2" color="lime" material="shader: flat; depthTest: false" position="0 0.15 0" rotation="90 0 0"></a-cone>
-                <a-text value="Find World" position="0 0.25 0" align="center" scale="0.2 0.2 0.2" color="lime" material="shader: flat; depthTest: false"></a-text>
+        <!-- DEBUG PANEL (Attached to HUD) -->
+        <a-entity id="local-rig">
+            <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false">
+                <!-- Text that floats 2m in front of you telling you the status -->
+                <a-text id="vr-console" value="Waiting for AR..." position="0 0.2 -2" align="center" color="yellow" scale="0.5 0.5 0.5" material="shader: flat; depthTest: false"></a-text>
+            </a-camera>
 
+            <a-entity id="left-hand" oculus-touch-controls="hand: left" calibration-listener></a-entity>
+            <a-entity id="right-hand" oculus-touch-controls="hand: right" calibration-listener>
+                <!-- Debug Sphere -->
+                <a-sphere radius="0.03" color="lime" material="shader: flat; depthTest: false"></a-sphere>
             </a-entity>
         </a-entity>
 
-
         <!-- WORLD ROOT -->
         <a-entity id="world-root" position="0 0 -2">
+            <!-- Grid -->
+            <a-gridhelper size="10" divisions="10" colorCenterLine="red" colorGrid="white"></a-gridhelper>
             
-            <!-- GIANT FLOOR GRID (Impossible to miss) -->
-            <a-gridhelper size="20" divisions="20" colorCenterLine="yellow" colorGrid="white" position="0 0 0"></a-gridhelper>
-            
-            <!-- Visual Marker -->
-            <a-entity id="calibration-marker" visible="true">
-                <a-box position="0 0 0" width="0.3" height="0.3" depth="0.3" material="shader: flat; color: yellow; opacity: 0.8; depthTest: false; transparent: true"></a-box>
-                <a-text value="SYNC CENTER" align="center" position="0 0.4 0" scale="0.8 0.8 0.8" color="yellow" material="shader: flat; depthTest: false"></a-text>
-                <a-cylinder height="0.01" radius="0.5" material="shader: flat; color: yellow; opacity: 0.3; depthTest: false; transparent: true"></a-cylinder>
-            </a-entity>
+            <!-- Calibration Box -->
+            <a-box position="0 0.5 0" width="0.3" height="0.3" depth="0.3" material="shader: flat; color: yellow; opacity: 0.5; depthTest: false"></a-box>
+            <a-text value="CENTER" align="center" position="0 0.8 0" color="yellow" scale="0.5 0.5 0.5"></a-text>
 
             <a-entity id="remote-players"></a-entity>
-
         </a-entity>
 
         <a-entity id="sync-system" network-sync></a-entity>
@@ -121,7 +96,17 @@
     </a-scene>
 
     <script>
-        // --- 0. CONFIG ---
+        // --- UTILS ---
+        function log(msg) {
+            console.log(msg);
+            const htmlConsole = document.getElementById('html-console');
+            if (htmlConsole) htmlConsole.innerText = msg;
+            
+            const vrConsole = document.getElementById('vr-console');
+            if(vrConsole) vrConsole.setAttribute('value', msg);
+        }
+
+        // --- FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
             authDomain: "zioneye-prototype.firebaseapp.com",
@@ -134,143 +119,109 @@
 
         let db, auth, currentUserId, myTeam = null;
 
-        // --- 1. WEAPON MODELS ---
         function getWeaponContent(team) {
-            if (team === 'blue') {
-                return `
-                    <a-box material="shader: flat; color: #1a1a1a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
-                    <a-cylinder material="shader: flat; color: #111" height="0.35" radius="0.015" rotation="90 0 0" position="0 0.02 -0.35"></a-cylinder>
-                `; 
-            } else {
-                return `
-                    <a-box material="shader: flat; color: #2a2a2a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>
-                    <a-cylinder material="shader: flat; color: #111" height="0.4" radius="0.012" rotation="90 0 0" position="0 0.02 -0.4"></a-cylinder>
-                `;
-            }
+            if (team === 'blue') return `<a-box material="shader: flat; color: #1a1a1a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>`;
+            return `<a-box material="shader: flat; color: #8B4513" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>`;
         }
 
-        // --- 2. CONTROLS & COMPASS ---
+        // --- CONTROLS ---
         AFRAME.registerComponent('calibration-listener', {
             init: function () {
-                this.el.addEventListener('triggerdown', this.syncToMarker.bind(this));
-                this.el.addEventListener('abuttondown', this.summonWorld.bind(this));
-                this.el.addEventListener('xbuttondown', this.summonWorld.bind(this));
+                this.el.addEventListener('triggerdown', this.sync.bind(this));
+                this.el.addEventListener('abuttondown', this.summon.bind(this));
+                this.el.addEventListener('xbuttondown', this.summon.bind(this));
             },
-            
-            tick: function() {
-                // Update Compass Arrow to point at World Root
-                const arrow = document.getElementById('compass-arrow');
+            summon: function() {
                 const root = document.getElementById('world-root');
-                const hand = document.getElementById('right-hand');
+                const cam = document.getElementById('local-head');
+                const p = cam.object3D.position;
+                const r = cam.object3D.rotation;
                 
-                if(arrow && root && hand) {
-                    const targetPos = new THREE.Vector3();
-                    root.object3D.getWorldPosition(targetPos);
-                    arrow.object3D.lookAt(targetPos);
-                }
+                // Teleport world to feet (keep Y at floor if possible, or relative)
+                root.object3D.position.set(p.x, 0, p.z - 1.0); // 1m in front, on floor
+                root.object3D.rotation.set(0, r.y, 0);
+                log("World Summoned!");
             },
-
-            summonWorld: function() {
-                const worldRoot = document.getElementById('world-root');
-                const camera = document.getElementById('local-head');
-                
-                const camPos = new THREE.Vector3();
-                const camQuat = new THREE.Quaternion();
-                camera.object3D.getWorldPosition(camPos);
-                camera.object3D.getWorldQuaternion(camQuat);
-                
-                const direction = new THREE.Vector3(0, 0, -1.0);
-                direction.applyQuaternion(camQuat);
-                direction.y = 0; 
-                
-                const newPos = new THREE.Vector3().copy(camPos).add(direction);
-                newPos.y = camPos.y - 1.0; // Place Grid on floor (approx 1m below head)
-                
-                worldRoot.object3D.position.copy(newPos);
-                
-                const euler = new THREE.Euler().setFromQuaternion(camQuat, 'YXZ');
-                worldRoot.object3D.rotation.set(0, euler.y, 0);
-
-                this.showStatus("World Summoned!");
-            },
-
-            syncToMarker: function () {
-                const worldRoot = document.getElementById('world-root');
-                const controller = this.el.object3D;
-                
-                controller.updateMatrixWorld(true);
-                worldRoot.object3D.position.copy(controller.position);
-                worldRoot.object3D.rotation.set(0, controller.rotation.y, 0); 
-
-                this.showStatus("Synced to Controller!");
-            },
-            
-            showStatus: function(msg) {
-                const status = document.getElementById('status');
-                status.innerText = msg;
-                status.style.color = "lime";
-                setTimeout(() => status.innerText = "Press 'A' to Summon | Trigger to Sync", 3000);
+            sync: function() {
+                const root = document.getElementById('world-root');
+                const ctrl = this.el.object3D;
+                root.object3D.position.copy(ctrl.position);
+                root.object3D.rotation.set(0, ctrl.rotation.y, 0);
+                log("Synced to Controller!");
             }
         });
 
-        // --- 3. AUTO SPAWN (Backup) ---
-        AFRAME.registerComponent('auto-spawn', {
-            init: function() {
-                const scene = this.el.sceneEl;
-                scene.addEventListener('enter-vr', () => {
-                    setTimeout(() => {
-                        const evt = new CustomEvent('abuttondown'); // Fake press 'A'
-                        const hand = document.getElementById('right-hand');
-                        if(hand) hand.dispatchEvent(evt);
-                    }, 2000);
-                });
-            }
-        });
-
-        // --- 4. NETWORK SYNC ---
+        // --- NETWORK SYNC (OPTIMIZED) ---
         AFRAME.registerComponent('network-sync', {
-            init: function() { this.lastTime = 0; },
+            init: function() { 
+                this.lastTime = 0; 
+                this.lastData = null; // Cache last sent data
+            },
             tick: function () {
                 if (!currentUserId || !db) return;
                 const now = Date.now();
-                if (now - this.lastTime < 80) return; 
+                // 1. Limit Frequency: 150ms (approx 6 updates/sec) is plenty for this test
+                if (now - this.lastTime < 150) return; 
                 this.lastTime = now;
 
                 const head = document.getElementById('local-head');
                 const hand = document.getElementById('right-hand');
-                const worldRoot = document.getElementById('world-root');
+                const root = document.getElementById('world-root');
 
                 head.object3D.updateMatrixWorld(true);
                 hand.object3D.updateMatrixWorld(true);
-                worldRoot.object3D.updateMatrixWorld(true);
+                root.object3D.updateMatrixWorld(true);
 
-                const rootInv = new THREE.Matrix4().copy(worldRoot.object3D.matrixWorld).invert();
+                const rootInv = new THREE.Matrix4().copy(root.object3D.matrixWorld).invert();
                 
-                // Head Relative
-                const headWorld = head.object3D.matrixWorld;
-                const headRel = new THREE.Matrix4().multiplyMatrices(rootInv, headWorld);
-                const hPos = new THREE.Vector3(); const hQuat = new THREE.Quaternion(); const hScale = new THREE.Vector3();
-                headRel.decompose(hPos, hQuat, hScale);
-                const hRot = new THREE.Euler().setFromQuaternion(hQuat);
+                // Helper to get relative coords
+                const getRel = (obj) => {
+                    const m = new THREE.Matrix4().multiplyMatrices(rootInv, obj.object3D.matrixWorld);
+                    const p = new THREE.Vector3(); const q = new THREE.Quaternion(); const s = new THREE.Vector3();
+                    m.decompose(p, q, s);
+                    const e = new THREE.Euler().setFromQuaternion(q);
+                    return { p, e };
+                };
 
-                // Hand Relative
-                const handWorld = hand.object3D.matrixWorld;
-                const handRel = new THREE.Matrix4().multiplyMatrices(rootInv, handWorld);
-                const wPos = new THREE.Vector3(); const wQuat = new THREE.Quaternion(); const wScale = new THREE.Vector3();
-                handRel.decompose(wPos, wQuat, wScale);
-                const wRot = new THREE.Euler().setFromQuaternion(wQuat);
+                const h = getRel(head);
+                const w = getRel(hand);
 
-                db.collection('players').doc(currentUserId).update({
-                    x: hPos.x, y: hPos.y, z: hPos.z,
-                    rotX: hRot.x, rotY: hRot.y, rotZ: hRot.z,
-                    handX: wPos.x, handY: wPos.y, handZ: wPos.z,
-                    handRotX: wRot.x, handRotY: wRot.y, handRotZ: wRot.z,
-                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+                // 2. Precision Reduction: Round numbers to 3 decimals to avoid micro-jitter updates
+                const payload = {
+                    x: parseFloat(h.p.x.toFixed(3)),
+                    y: parseFloat(h.p.y.toFixed(3)),
+                    z: parseFloat(h.p.z.toFixed(3)),
+                    rotY: parseFloat(h.e.y.toFixed(3)),
+                    handX: parseFloat(w.p.x.toFixed(3)),
+                    handY: parseFloat(w.p.y.toFixed(3)),
+                    handZ: parseFloat(w.p.z.toFixed(3)),
+                    handRotX: parseFloat(w.e.x.toFixed(3)),
+                    handRotY: parseFloat(w.e.y.toFixed(3)),
+                    handRotZ: parseFloat(w.e.z.toFixed(3))
+                };
+
+                // 3. Delta Check: If nothing changed, DO NOT WRITE
+                if (this.lastData && JSON.stringify(this.lastData) === JSON.stringify(payload)) {
+                    return; // Skip write
+                }
+                
+                this.lastData = payload;
+                // Add timestamp only on actual write
+                payload.lastUpdate = firebase.firestore.FieldValue.serverTimestamp();
+
+                db.collection('players').doc(currentUserId).update(payload).catch(err => {
+                    if (err.code === 'resource-exhausted') {
+                        log("Quota Exceeded. Stops syncing.");
+                        // Consider stopping loop to prevent console spam
+                        // this.el.removeAttribute('network-sync'); 
+                    } else {
+                        console.warn("Sync Error", err);
+                    }
                 });
             }
         });
 
-        // --- 5. STARTUP ---
+        // --- APP START ---
         function initFirebase() {
             if (!firebase.apps.length) {
                 try {
@@ -278,7 +229,7 @@
                     db = firebase.firestore();
                     auth = firebase.auth();
                     return true;
-                } catch (e) { console.error(e); return false; }
+                } catch (e) { log("Firebase Error: " + e.message); return false; }
             }
             return true;
         }
@@ -288,57 +239,72 @@
             document.getElementById('loading-text').classList.remove('hidden');
 
             const scene = document.querySelector('a-scene');
+
+            // 1. ATTEMPT AR SESSION
             if (navigator.xr) {
                 try {
+                    log("Requesting immersive-ar...");
                     const session = await navigator.xr.requestSession('immersive-ar', {
                         optionalFeatures: ['dom-overlay', 'hit-test', 'local-floor'],
-                        domOverlay: { root: document.body } 
+                        domOverlay: { root: document.getElementById('overlay') } 
                     });
+                    
+                    log("Session started. Mode: " + session.mode);
+                    
+                    // APPLY AR FIXES
                     scene.renderer.xr.setSession(session);
+                    
+                    // FORCE TRANSPARENCY
+                    session.addEventListener('select', () => {}); // No-op
+                    
+                    const forceTransparent = () => {
+                        if(scene.object3D) scene.object3D.background = null;
+                        if(scene.renderer) scene.renderer.setClearColor(0x000000, 0);
+                    };
+                    
+                    forceTransparent();
+                    setInterval(forceTransparent, 1000);
+
                 } catch (e) {
-                    console.warn("AR Launch Failed, fallback VR", e);
+                    log("AR Failed: " + e.message + ". Trying VR.");
                     scene.enterVR(); 
                 }
-            } else { scene.enterVR(); }
+            } else {
+                log("WebXR not found. Entering VR.");
+                scene.enterVR(); 
+            }
 
+            // 2. AUTH
             if (!initFirebase()) return;
             try {
-                const userCred = await auth.signInAnonymously();
-                currentUserId = userCred.user.uid;
+                await auth.signInAnonymously();
+                currentUserId = auth.currentUser.uid;
                 myTeam = team;
-
-                // Local Weapon
-                const hand = document.getElementById('right-hand');
-                while (hand.firstChild) { hand.removeChild(hand.firstChild); }
                 
-                // Add Debug Sphere & Compass
+                // Setup Local
+                const hand = document.getElementById('right-hand');
+                while (hand.firstChild) hand.removeChild(hand.firstChild);
+                
+                // Debug Sphere
                 const sphere = document.createElement('a-sphere');
-                sphere.setAttribute('radius', '0.05');
-                sphere.setAttribute('color', 'red');
+                sphere.setAttribute('radius', '0.04');
+                sphere.setAttribute('color', 'lime');
                 sphere.setAttribute('material', 'shader: flat; depthTest: false');
                 hand.appendChild(sphere);
 
-                const arrow = document.createElement('a-cone');
-                arrow.setAttribute('id', 'compass-arrow');
-                arrow.setAttribute('radius-bottom', '0.02');
-                arrow.setAttribute('radius-top', '0');
-                arrow.setAttribute('height', '0.2');
-                arrow.setAttribute('color', 'lime');
-                arrow.setAttribute('rotation', '90 0 0'); // Point forward initially
-                arrow.setAttribute('material', 'shader: flat; depthTest: false');
-                hand.appendChild(arrow);
-                
-                // Then Add Weapon
+                // Weapon
                 const weapon = document.createElement('a-entity');
                 weapon.innerHTML = getWeaponContent(team);
                 weapon.setAttribute('rotation', '-10 0 0');
                 hand.appendChild(weapon);
 
+                // DB Init
                 await db.collection('players').doc(currentUserId).set({
                     team: team, x:0, y:0, z:0, active: true,
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
 
+                // Listen
                 db.collection('players').onSnapshot(snapshot => {
                     snapshot.docChanges().forEach(change => {
                         if (change.doc.id === currentUserId) return;
@@ -349,22 +315,23 @@
                 });
                 
                 document.getElementById('overlay').style.display = 'none';
+
             } catch (error) {
-                alert("Error: " + error.message);
+                log("Auth Error: " + error.message);
                 document.getElementById('overlay').style.display = 'flex';
                 document.getElementById('setup-controls').classList.remove('hidden');
             }
         }
 
-        // --- 6. REMOTE ---
+        // --- REMOTE ---
         function createRemotePlayer(id, data) {
             const container = document.getElementById('remote-players');
             const el = document.createElement('a-entity');
             el.setAttribute('id', `player-${id}`);
 
+            // Indicator
             const indicator = document.createElement('a-entity');
             indicator.classList.add('indicator-head'); 
-            
             if (data.team === 'blue') {
                 indicator.setAttribute('mixin', 'blue-indicator');
                 indicator.setAttribute('position', '0 0.5 0'); 
@@ -376,11 +343,11 @@
             }
             el.appendChild(indicator);
 
+            // Weapon
             const handEnt = document.createElement('a-entity');
             handEnt.classList.add('remote-hand');
             const weaponEnt = document.createElement('a-entity');
             weaponEnt.innerHTML = getWeaponContent(data.team);
-            weaponEnt.setAttribute('rotation', '-10 0 0');
             handEnt.appendChild(weaponEnt);
             el.appendChild(handEnt);
 
@@ -390,17 +357,15 @@
         function updateRemotePlayer(id, data) {
             const el = document.getElementById(`player-${id}`);
             if (el) {
-                el.object3D.position.set(0, 0, 0);
-                el.object3D.rotation.set(0, 0, 0);
-
-                const indicator = el.querySelector('.indicator-head');
-                if (indicator) {
-                     indicator.object3D.position.set(data.x, data.y, data.z);
-                     indicator.object3D.rotation.set(0, data.rotY, 0); 
-                     if (data.team !== 'blue') indicator.object3D.rotation.x = Math.PI; 
+                el.object3D.position.set(0,0,0);
+                const ind = el.querySelector('.indicator-head');
+                if (ind) {
+                    ind.object3D.position.set(data.x, data.y, data.z);
+                    ind.object3D.rotation.set(0, data.rotY, 0); 
+                    if(data.team!=='blue') ind.object3D.rotation.x = Math.PI;
                 }
                 const hand = el.querySelector('.remote-hand');
-                if (hand && data.handX !== undefined) {
+                if (hand && data.handX) {
                     hand.object3D.position.set(data.handX, data.handY, data.handZ);
                     hand.object3D.rotation.set(data.handRotX, data.handRotY, data.handRotZ);
                 }
