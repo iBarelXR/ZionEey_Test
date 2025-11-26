@@ -53,16 +53,6 @@
         
         <div id="setup-controls">
             <!-- PASTE FIREBASE CONFIG HERE OR EDIT CODE -->
-            // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-                const firebaseConfig = {
-                  apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
-                  authDomain: "zioneye-prototype.firebaseapp.com",
-                  projectId: "zioneye-prototype",
-                  storageBucket: "zioneye-prototype.firebasestorage.app",
-                  messagingSenderId: "356865086206",
-                  appId: "1:356865086206:web:d611c8deb6a98070dc0baf",
-                  
-                };
             
             <button class="btn btn-blue" onclick="joinGame('blue')">Join Blue Team (M4)</button>
             <button class="btn btn-red" onclick="joinGame('red')">Join Red Team (AK47)</button>
@@ -322,6 +312,29 @@
             const el = document.getElementById(`player-${id}`);
             if (el) el.remove();
         }
+    </script>
+    <script type="module">
+      // Import the functions you need from the SDKs you need
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
+      // TODO: Add SDKs for Firebase products that you want to use
+      // https://firebase.google.com/docs/web/setup#available-libraries
+    
+      // Your web app's Firebase configuration
+      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+      const firebaseConfig = {
+        apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
+        authDomain: "zioneye-prototype.firebaseapp.com",
+        projectId: "zioneye-prototype",
+        storageBucket: "zioneye-prototype.firebasestorage.app",
+        messagingSenderId: "356865086206",
+        appId: "1:356865086206:web:d611c8deb6a98070dc0baf",
+        measurementId: "G-P1XL9VQN79"
+      };
+    
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      const analytics = getAnalytics(app);
     </script>
 </body>
 </html>
