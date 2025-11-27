@@ -1,380 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Quest 3 AR: Red vs Blue</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <!-- A-Frame 1.5.0 -->
-    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-    <!-- Firebase Libraries -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Cube</title>
     <style>
-        body { font-family: sans-serif; background-color: transparent; }
-        .a-enter-vr { display: none !important; } /* Hide default button */
-        
-        #overlay {
-            position: absolute; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); color: white; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; text-align: center;
-            pointer-events: auto;
-        }
-        .btn {
-            background: #444; color: white; border: 2px solid white; padding: 15px 30px;
-            font-size: 1.2rem; margin: 10px; cursor: pointer; border-radius: 8px;
-        }
-        .btn-blue { background: #0055ff; border-color: #002a80; }
-        .btn-red { background: #d32f2f; border-color: #8e0000; }
-        .hidden { display: none !important; }
-        
-        /* Debug Console in HTML (hidden in AR usually, but good for desktop) */
-        #html-console { position: absolute; bottom: 10px; left: 10px; color: yellow; z-index: 1001; font-size: 12px; text-align: left;}
+        body { margin: 0; background-color: #333; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        button { padding: 20px 40px; font-size: 24px; background: #e72c2c; color: white; border: none; border-radius: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
+    <button id="ar-button">Start AR</button>
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
-    <div id="overlay">
-        <h1>Quest 3 AR Battle</h1>
-        <p>1. Stand in center of room.<br>2. Click Team to Start.</p>
-        <div id="setup-controls">
-            <button class="btn btn-blue" onclick="startAR('blue')">Join Blue</button>
-            <button class="btn btn-red" onclick="startAR('red')">Join Red</button>
-        </div>
-        <p id="loading-text" class="hidden">Requesting AR...</p>
-    </div>
-
-    <div id="html-console">Ready.</div>
-
-    <!-- 3D Scene -->
-    <!-- REMOVED 'background' component entirely -->
-    <!-- ADDED ar-hit-test-listener for future expansion -->
-    <a-scene 
-        renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true; physicallyCorrectLights: true;"
-        webxr="optionalFeatures: dom-overlay, hit-test, immersive-ar; overlayElement: #overlay; requiredFeatures: local-floor"
-        vr-mode-ui="enabled: false">
-        
-        <!-- NO SKYBOX -->
-
-        <a-light type="ambient" intensity="1"></a-light>
-        <a-light type="directional" intensity="1.5" position="-1 2 1"></a-light>
-
-        <a-assets>
-            <a-mixin id="blue-indicator" geometry="primitive: octahedron; radius: 0.15" material="shader: flat; color: #00aaff; opacity: 1.0; depthTest: false"></a-mixin>
-            <a-mixin id="red-indicator" geometry="primitive: cone; radiusBottom: 0.01; radiusTop: 0.15; height: 0.3" material="shader: flat; color: #ff3333; opacity: 1.0; depthTest: false"></a-mixin>
-        </a-assets>
-
-        <!-- DEBUG PANEL (Attached to HUD) -->
-        <a-entity id="local-rig">
-            <a-camera id="local-head" position="0 1.6 0" look-controls="pointerLockEnabled: false">
-                <!-- Text that floats 2m in front of you telling you the status -->
-                <a-text id="vr-console" value="Waiting for AR..." position="0 0.2 -2" align="center" color="yellow" scale="0.5 0.5 0.5" material="shader: flat; depthTest: false"></a-text>
-            </a-camera>
-
-            <a-entity id="left-hand" oculus-touch-controls="hand: left" calibration-listener></a-entity>
-            <a-entity id="right-hand" oculus-touch-controls="hand: right" calibration-listener>
-                <!-- Debug Sphere -->
-                <a-sphere radius="0.03" color="lime" material="shader: flat; depthTest: false"></a-sphere>
-            </a-entity>
-        </a-entity>
-
-        <!-- WORLD ROOT -->
-        <a-entity id="world-root" position="0 0 -2">
-            <!-- Grid -->
-            <a-gridhelper size="10" divisions="10" colorCenterLine="red" colorGrid="white"></a-gridhelper>
-            
-            <!-- Calibration Box -->
-            <a-box position="0 0.5 0" width="0.3" height="0.3" depth="0.3" material="shader: flat; color: yellow; opacity: 0.5; depthTest: false"></a-box>
-            <a-text value="CENTER" align="center" position="0 0.8 0" color="yellow" scale="0.5 0.5 0.5"></a-text>
-
-            <a-entity id="remote-players"></a-entity>
-        </a-entity>
-
-        <a-entity id="sync-system" network-sync></a-entity>
-
-    </a-scene>
-
-    <script>
-        // --- UTILS ---
-        function log(msg) {
-            console.log(msg);
-            const htmlConsole = document.getElementById('html-console');
-            if (htmlConsole) htmlConsole.innerText = msg;
-            
-            const vrConsole = document.getElementById('vr-console');
-            if(vrConsole) vrConsole.setAttribute('value', msg);
-        }
-
-        // --- FIREBASE ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyCgzwyHW0gPmsdp5sKFPL2WpUqah02OAf4",
-            authDomain: "zioneye-prototype.firebaseapp.com",
-            projectId: "zioneye-prototype",
-            storageBucket: "zioneye-prototype.firebasestorage.app",
-            messagingSenderId: "356865086206",
-            appId: "1:356865086206:web:d611c8deb6a98070dc0baf",
-            measurementId: "G-P1XL9VQN79"
-        };
-
-        let db, auth, currentUserId, myTeam = null;
-
-        function getWeaponContent(team) {
-            if (team === 'blue') return `<a-box material="shader: flat; color: #1a1a1a" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>`;
-            return `<a-box material="shader: flat; color: #8B4513" depth="0.4" height="0.08" width="0.05" position="0 0 -0.1"></a-box>`;
-        }
-
-        // --- CONTROLS ---
-        AFRAME.registerComponent('calibration-listener', {
-            init: function () {
-                this.el.addEventListener('triggerdown', this.sync.bind(this));
-                this.el.addEventListener('abuttondown', this.summon.bind(this));
-                this.el.addEventListener('xbuttondown', this.summon.bind(this));
-            },
-            summon: function() {
-                const root = document.getElementById('world-root');
-                const cam = document.getElementById('local-head');
-                const p = cam.object3D.position;
-                const r = cam.object3D.rotation;
-                
-                // Teleport world to feet (keep Y at floor if possible, or relative)
-                root.object3D.position.set(p.x, 0, p.z - 1.0); // 1m in front, on floor
-                root.object3D.rotation.set(0, r.y, 0);
-                log("World Summoned!");
-            },
-            sync: function() {
-                const root = document.getElementById('world-root');
-                const ctrl = this.el.object3D;
-                root.object3D.position.copy(ctrl.position);
-                root.object3D.rotation.set(0, ctrl.rotation.y, 0);
-                log("Synced to Controller!");
-            }
-        });
-
-        // --- NETWORK SYNC (OPTIMIZED) ---
-        AFRAME.registerComponent('network-sync', {
-            init: function() { 
-                this.lastTime = 0; 
-                this.lastData = null; // Cache last sent data
-            },
-            tick: function () {
-                if (!currentUserId || !db) return;
-                const now = Date.now();
-                // 1. Limit Frequency: 150ms (approx 6 updates/sec) is plenty for this test
-                if (now - this.lastTime < 150) return; 
-                this.lastTime = now;
-
-                const head = document.getElementById('local-head');
-                const hand = document.getElementById('right-hand');
-                const root = document.getElementById('world-root');
-
-                head.object3D.updateMatrixWorld(true);
-                hand.object3D.updateMatrixWorld(true);
-                root.object3D.updateMatrixWorld(true);
-
-                const rootInv = new THREE.Matrix4().copy(root.object3D.matrixWorld).invert();
-                
-                // Helper to get relative coords
-                const getRel = (obj) => {
-                    const m = new THREE.Matrix4().multiplyMatrices(rootInv, obj.object3D.matrixWorld);
-                    const p = new THREE.Vector3(); const q = new THREE.Quaternion(); const s = new THREE.Vector3();
-                    m.decompose(p, q, s);
-                    const e = new THREE.Euler().setFromQuaternion(q);
-                    return { p, e };
-                };
-
-                const h = getRel(head);
-                const w = getRel(hand);
-
-                // 2. Precision Reduction: Round numbers to 3 decimals to avoid micro-jitter updates
-                const payload = {
-                    x: parseFloat(h.p.x.toFixed(3)),
-                    y: parseFloat(h.p.y.toFixed(3)),
-                    z: parseFloat(h.p.z.toFixed(3)),
-                    rotY: parseFloat(h.e.y.toFixed(3)),
-                    handX: parseFloat(w.p.x.toFixed(3)),
-                    handY: parseFloat(w.p.y.toFixed(3)),
-                    handZ: parseFloat(w.p.z.toFixed(3)),
-                    handRotX: parseFloat(w.e.x.toFixed(3)),
-                    handRotY: parseFloat(w.e.y.toFixed(3)),
-                    handRotZ: parseFloat(w.e.z.toFixed(3))
-                };
-
-                // 3. Delta Check: If nothing changed, DO NOT WRITE
-                if (this.lastData && JSON.stringify(this.lastData) === JSON.stringify(payload)) {
-                    return; // Skip write
-                }
-                
-                this.lastData = payload;
-                // Add timestamp only on actual write
-                payload.lastUpdate = firebase.firestore.FieldValue.serverTimestamp();
-
-                db.collection('players').doc(currentUserId).update(payload).catch(err => {
-                    if (err.code === 'resource-exhausted') {
-                        log("Quota Exceeded. Stops syncing.");
-                        // Consider stopping loop to prevent console spam
-                        // this.el.removeAttribute('network-sync'); 
-                    } else {
-                        console.warn("Sync Error", err);
-                    }
-                });
-            }
-        });
-
-        // --- APP START ---
-        function initFirebase() {
-            if (!firebase.apps.length) {
-                try {
-                    firebase.initializeApp(firebaseConfig);
-                    db = firebase.firestore();
-                    auth = firebase.auth();
-                    return true;
-                } catch (e) { log("Firebase Error: " + e.message); return false; }
-            }
-            return true;
-        }
-
-        async function startAR(team) {
-            document.getElementById('setup-controls').classList.add('hidden');
-            document.getElementById('loading-text').classList.remove('hidden');
-
-            const scene = document.querySelector('a-scene');
-
-            // 1. ATTEMPT AR SESSION
+        document.getElementById('ar-button').addEventListener('click', async () => {
             if (navigator.xr) {
-                try {
-                    log("Requesting immersive-ar...");
-                    const session = await navigator.xr.requestSession('immersive-ar', {
-                        optionalFeatures: ['dom-overlay', 'hit-test', 'local-floor'],
-                        domOverlay: { root: document.getElementById('overlay') } 
-                    });
-                    
-                    log("Session started. Mode: " + session.mode);
-                    
-                    // APPLY AR FIXES
-                    scene.renderer.xr.setSession(session);
-                    
-                    // FORCE TRANSPARENCY
-                    session.addEventListener('select', () => {}); // No-op
-                    
-                    const forceTransparent = () => {
-                        if(scene.object3D) scene.object3D.background = null;
-                        if(scene.renderer) scene.renderer.setClearColor(0x000000, 0);
-                    };
-                    
-                    forceTransparent();
-                    setInterval(forceTransparent, 1000);
-
-                } catch (e) {
-                    log("AR Failed: " + e.message + ". Trying VR.");
-                    scene.enterVR(); 
-                }
+                const session = await navigator.xr.requestSession('immersive-ar', { requiredFeatures: ['local-floor'] });
+                onSessionStarted(session);
             } else {
-                log("WebXR not found. Entering VR.");
-                scene.enterVR(); 
+                alert("WebXR not found. Use Quest Browser.");
             }
+        });
 
-            // 2. AUTH
-            if (!initFirebase()) return;
-            try {
-                await auth.signInAnonymously();
-                currentUserId = auth.currentUser.uid;
-                myTeam = team;
-                
-                // Setup Local
-                const hand = document.getElementById('right-hand');
-                while (hand.firstChild) hand.removeChild(hand.firstChild);
-                
-                // Debug Sphere
-                const sphere = document.createElement('a-sphere');
-                sphere.setAttribute('radius', '0.04');
-                sphere.setAttribute('color', 'lime');
-                sphere.setAttribute('material', 'shader: flat; depthTest: false');
-                hand.appendChild(sphere);
+        function onSessionStarted(session) {
+            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            renderer.xr.setReferenceSpaceType('local-floor');
+            document.body.appendChild(renderer.domElement);
 
-                // Weapon
-                const weapon = document.createElement('a-entity');
-                weapon.innerHTML = getWeaponContent(team);
-                weapon.setAttribute('rotation', '-10 0 0');
-                hand.appendChild(weapon);
+            const scene = new THREE.Scene();
+            
+            // The Cube
+            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const cube = new THREE.Mesh(geometry, material);
+            
+            // Position: X=0, Y=1.6m (Height), Z=-1m (Forward)
+            cube.position.set(0, 1.6, -1); 
+            scene.add(cube);
 
-                // DB Init
-                await db.collection('players').doc(currentUserId).set({
-                    team: team, x:0, y:0, z:0, active: true,
-                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-                });
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            renderer.xr.setSession(session);
 
-                // Listen
-                db.collection('players').onSnapshot(snapshot => {
-                    snapshot.docChanges().forEach(change => {
-                        if (change.doc.id === currentUserId) return;
-                        if (change.type === 'added') createRemotePlayer(change.doc.id, change.doc.data());
-                        if (change.type === 'modified') updateRemotePlayer(change.doc.id, change.doc.data());
-                        if (change.type === 'removed') removeRemotePlayer(change.doc.id);
-                    });
-                });
-                
-                document.getElementById('overlay').style.display = 'none';
-
-            } catch (error) {
-                log("Auth Error: " + error.message);
-                document.getElementById('overlay').style.display = 'flex';
-                document.getElementById('setup-controls').classList.remove('hidden');
-            }
-        }
-
-        // --- REMOTE ---
-        function createRemotePlayer(id, data) {
-            const container = document.getElementById('remote-players');
-            const el = document.createElement('a-entity');
-            el.setAttribute('id', `player-${id}`);
-
-            // Indicator
-            const indicator = document.createElement('a-entity');
-            indicator.classList.add('indicator-head'); 
-            if (data.team === 'blue') {
-                indicator.setAttribute('mixin', 'blue-indicator');
-                indicator.setAttribute('position', '0 0.5 0'); 
-                if (myTeam === 'red') indicator.setAttribute('visible', false);
-            } else {
-                indicator.setAttribute('mixin', 'red-indicator');
-                indicator.setAttribute('position', '0 0.5 0'); 
-                indicator.setAttribute('visible', true);
-            }
-            el.appendChild(indicator);
-
-            // Weapon
-            const handEnt = document.createElement('a-entity');
-            handEnt.classList.add('remote-hand');
-            const weaponEnt = document.createElement('a-entity');
-            weaponEnt.innerHTML = getWeaponContent(data.team);
-            handEnt.appendChild(weaponEnt);
-            el.appendChild(handEnt);
-
-            container.appendChild(el);
-        }
-
-        function updateRemotePlayer(id, data) {
-            const el = document.getElementById(`player-${id}`);
-            if (el) {
-                el.object3D.position.set(0,0,0);
-                const ind = el.querySelector('.indicator-head');
-                if (ind) {
-                    ind.object3D.position.set(data.x, data.y, data.z);
-                    ind.object3D.rotation.set(0, data.rotY, 0); 
-                    if(data.team!=='blue') ind.object3D.rotation.x = Math.PI;
-                }
-                const hand = el.querySelector('.remote-hand');
-                if (hand && data.handX) {
-                    hand.object3D.position.set(data.handX, data.handY, data.handZ);
-                    hand.object3D.rotation.set(data.handRotX, data.handRotY, data.handRotZ);
-                }
-            }
-        }
-
-        function removeRemotePlayer(id) {
-            const el = document.getElementById(`player-${id}`);
-            if (el) el.remove();
+            renderer.setAnimationLoop(() => {
+                cube.rotation.x += 0.01;
+                cube.rotation.y += 0.01;
+                renderer.render(scene, camera);
+            });
         }
     </script>
 </body>
