@@ -3,18 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Hybrid v3.0</title>
+    <title>AR Cube Interaction</title>
     <style>
         body { margin: 0; background-color: #333; color: white; font-family: sans-serif; }
         #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
         button { padding: 20px 40px; font-size: 24px; background: #2c6ce7; color: white; border: none; border-radius: 10px; cursor: pointer; }
+        p { margin-top: 10px; font-size: 18px; }
     </style>
 </head>
 <body>
 
     <div id="overlay">
-        <button id="ar-button">Start AR (Hybrid)</button>
-        <p>Supports Hands AND Controllers</p>
+        <button id="ar-button">Start AR</button>
+        <p>Touch & Drag to Rotate</p>
     </div>
 
     <script type="importmap">
@@ -32,107 +33,57 @@
         import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
         let renderer, scene, camera;
-        let cube, debugMesh, debugCanvas, debugContext;
+        let cube;
         let controllers = [];
         let hands = [];
-        const tempMatrix = new THREE.Matrix4();
         
-        // --- IN-VR DEBUGGER SETUP ---
-        function createDebugBoard() {
-            debugCanvas = document.createElement('canvas');
-            debugCanvas.width = 512;
-            debugCanvas.height = 512;
-            debugContext = debugCanvas.getContext('2d');
-            debugContext.fillStyle = '#ffffff';
-            debugContext.fillRect(0,0,512,512);
-            
-            const tex = new THREE.CanvasTexture(debugCanvas);
-            const mat = new THREE.MeshBasicMaterial({ map: tex });
-            const geo = new THREE.PlaneGeometry(0.3, 0.3);
-            debugMesh = new THREE.Mesh(geo, mat);
-            debugMesh.position.set(0.4, 1.6, -1); // To the right of the cube
-            debugMesh.rotation.y = -0.5;
-            scene.add(debugMesh);
-            logToVR("System Ready.");
-        }
-
-        function logToVR(text) {
-            if (!debugContext) return;
-            debugContext.fillStyle = '#ffffff';
-            debugContext.fillRect(0, 0, 512, 512);
-            debugContext.fillStyle = '#000000';
-            debugContext.font = '30px Arial';
-            
-            // Simple text wrap handling for canvas
-            const words = text.split(' ');
-            let line = '';
-            let y = 50;
-            
-            for(let n = 0; n < words.length; n++) {
-                let testLine = line + words[n] + ' ';
-                let metrics = debugContext.measureText(testLine);
-                if (metrics.width > 480 && n > 0) {
-                    debugContext.fillText(line, 10, y);
-                    line = words[n] + ' ';
-                    y += 40;
-                } else {
-                    line = testLine;
-                }
-            }
-            debugContext.fillText(line, 10, y);
-            
-            if (debugMesh) debugMesh.material.map.needsUpdate = true;
-        }
-
-        // --- APP LOGIC ---
+        // State for interaction
+        let previousPosition = new THREE.Vector3();
+        let isInteracting = false;
+        
+        // Raycaster for controllers
+        const raycaster = new THREE.Raycaster();
+        const tempMatrix = new THREE.Matrix4();
 
         document.getElementById('ar-button').addEventListener('click', async () => {
             if (navigator.xr) {
-                try {
-                    const session = await navigator.xr.requestSession('immersive-ar', {
-                        requiredFeatures: ['local-floor'],
-                        optionalFeatures: ['hand-tracking']
-                    });
-                    onSessionStarted(session);
-                } catch (e) {
-                    alert("Error: " + e);
-                }
+                const session = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['local-floor'],
+                    optionalFeatures: ['hand-tracking']
+                });
+                onSessionStarted(session);
             }
         });
 
         function onSessionStarted(session) {
-            try {
-                renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                renderer.xr.enabled = true;
-                renderer.xr.setReferenceSpaceType('local-floor');
-                document.body.appendChild(renderer.domElement);
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            renderer.xr.setReferenceSpaceType('local-floor');
+            document.body.appendChild(renderer.domElement);
 
-                scene = new THREE.Scene();
+            scene = new THREE.Scene();
 
-                // CUBE
-                const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-                const material = new THREE.MeshNormalMaterial();
-                cube = new THREE.Mesh(geometry, material);
-                cube.position.set(0, 1.6, -1);
-                scene.add(cube);
+            // Create Cube
+            // We use MeshLambertMaterial so it reacts to light (looks more 3D)
+            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const material = new THREE.MeshLambertMaterial({ color: 0xff0000 }); 
+            cube = new THREE.Mesh(geometry, material);
+            cube.position.set(0, 1.5, -0.8);
+            scene.add(cube);
 
-                // DEBUG BOARD
-                createDebugBoard();
+            // Add a light so the cube isn't flat
+            const light = new THREE.DirectionalLight(0xffffff, 2);
+            light.position.set(1, 2, 1);
+            scene.add(light);
 
-                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
 
-                // CONTROLLERS & HANDS
-                setupInputs();
+            setupInputs();
 
-                renderer.xr.setSession(session);
-                renderer.setAnimationLoop(render);
-                
-                // Hide Overlay
-                document.getElementById('overlay').style.display = 'none';
-            } catch (err) {
-                alert("Init Error: " + err);
-            }
+            renderer.xr.setSession(session);
+            renderer.setAnimationLoop(render);
+            document.getElementById('overlay').style.display = 'none';
         }
 
         function setupInputs() {
@@ -140,17 +91,23 @@
             const handModelFactory = new XRHandModelFactory();
 
             for (let i = 0; i < 2; i++) {
-                // Controller (Ray)
+                // Controller
                 const controller = renderer.xr.getController(i);
-                // Add Ray Line
-                const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
-                const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+                // Visual Line
+                const line = new THREE.Line(
+                    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]),
+                    new THREE.LineBasicMaterial({ color: 0xffffff })
+                );
                 controller.add(line);
                 controller.userData.ray = line;
+                // Track button presses
+                controller.addEventListener('selectstart', () => { controller.userData.isSelecting = true; });
+                controller.addEventListener('selectend', () => { controller.userData.isSelecting = false; });
+                
                 scene.add(controller);
                 controllers.push(controller);
 
-                // Hand (Mesh)
+                // Hand
                 const hand = renderer.xr.getHand(i);
                 hand.add(handModelFactory.createHandModel(hand, "mesh"));
                 scene.add(hand);
@@ -159,54 +116,74 @@
         }
 
         function render() {
-            try {
-                // Safety: Rotate cube slightly to prove loop is running
-                cube.rotation.x += 0.005;
-                cube.rotation.y += 0.005;
+            let activeInputPosition = null;
 
-                // Handle Interactions
-                checkInputs();
+            // 1. CHECK CONTROLLERS (Laser)
+            controllers.forEach((controller) => {
+                if (controller.userData.isSelecting) {
+                    // Raycast to find intersection
+                    tempMatrix.identity().extractRotation(controller.matrixWorld);
+                    raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+                    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-                renderer.render(scene, camera);
-            } catch (e) {
-                // If loop crashes, PRINT IT to the VR board
-                logToVR("CRASH: " + e.message);
-                renderer.setAnimationLoop(null); // Stop loop
-            }
-        }
+                    const intersects = raycaster.intersectObject(cube);
+                    if (intersects.length > 0) {
+                        activeInputPosition = intersects[0].point;
+                    }
+                }
+            });
 
-        function checkInputs() {
-            // Check both hands/controllers
-            for (let i = 0; i < 2; i++) {
-                const hand = hands[i];
-                const controller = controllers[i];
-
-                // 1. IS HAND VISIBLE?
-                if (hand.visible) {
-                    // Hide controller ray if hand is active
-                    if (controller.userData.ray) controller.userData.ray.visible = false;
-
-                    // Do Touch Logic
-                    const indexTip = hand.getObjectByName('index-finger-tip');
-                    if (indexTip) {
-                        const tipPos = new THREE.Vector3();
-                        indexTip.getWorldPosition(tipPos);
-                        const dist = tipPos.distanceTo(cube.position);
-                        if (dist < 0.15) {
-                            cube.scale.set(1.2, 1.2, 1.2); // Grow on touch
-                            logToVR("Hand Touching!");
-                        } else {
-                            cube.scale.set(1, 1, 1);
+            // 2. CHECK HANDS (Direct Touch)
+            // If no controller interaction, check hands
+            if (!activeInputPosition) {
+                hands.forEach((hand) => {
+                    if (hand.visible) {
+                        const indexTip = hand.getObjectByName('index-finger-tip');
+                        if (indexTip) {
+                            const tipPos = new THREE.Vector3();
+                            indexTip.getWorldPosition(tipPos);
+                            
+                            // Check distance to cube center
+                            const dist = tipPos.distanceTo(cube.position);
+                            // 0.13 is roughly "touching" the surface (cube is 0.2 wide)
+                            if (dist < 0.13) {
+                                activeInputPosition = tipPos;
+                            }
                         }
                     }
+                });
+            }
+
+            // 3. APPLY ROTATION LOGIC
+            if (activeInputPosition) {
+                // Interaction JUST started this frame
+                if (!isInteracting) {
+                    isInteracting = true;
+                    previousPosition.copy(activeInputPosition);
+                    cube.material.color.setHex(0x0000ff); // Turn BLUE on touch
                 } 
-                // 2. IS CONTROLLER VISIBLE?
-                else if (controller.visible) {
-                    if (controller.userData.ray) controller.userData.ray.visible = true;
-                    // Keep it simple for now, just log presence
-                    // logToVR("Controller Active");
+                // Interaction is continuing
+                else {
+                    // Calculate how much the hand/laser moved
+                    const deltaX = activeInputPosition.x - previousPosition.x;
+                    const deltaY = activeInputPosition.y - previousPosition.y;
+
+                    // Rotate cube based on that movement (sensitivity 5.0)
+                    cube.rotation.y += deltaX * 5.0;
+                    cube.rotation.x += deltaY * 5.0;
+
+                    // Update previous position for next frame
+                    previousPosition.copy(activeInputPosition);
+                }
+            } else {
+                // No interaction this frame
+                if (isInteracting) {
+                    isInteracting = false;
+                    cube.material.color.setHex(0xff0000); // Back to RED
                 }
             }
+
+            renderer.render(scene, camera);
         }
     </script>
 </body>
