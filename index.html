@@ -3,23 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Hand Interaction</title>
+    <title>Quest 3 Hand Touch</title>
     <style>
         body { margin: 0; background-color: #333; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
         #ar-button { padding: 20px 40px; font-size: 24px; background: #2c6ce7; color: white; border: none; border-radius: 10px; cursor: pointer; }
-        p { margin-top: 10px; opacity: 0.8; max-width: 400px; text-align: center; }
+        p { margin-top: 20px; font-size: 16px; opacity: 0.8; }
     </style>
 </head>
 <body>
 
     <button id="ar-button">Start Hand AR</button>
-    <p>1. Pinch fingers to use "Laser" from far away.<br>2. Reach out and touch the cube to spin it.</p>
+    <p>Reach out and touch the cube with your Index Finger.</p>
 
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+                "three": "https://unpkg.com/three@0.164.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.164.0/examples/jsm/"
             }
         }
     </script>
@@ -31,26 +31,22 @@
 
         let renderer, scene, camera;
         let cube;
-        let controllers = [];
-        let hands = [];
-        const raycaster = new THREE.Raycaster();
-        const tempMatrix = new THREE.Matrix4();
+        let handLeft, handRight;
+        const tempPosition = new THREE.Vector3();
 
-        // Button Logic
-        const button = document.getElementById('ar-button');
-        button.addEventListener('click', async () => {
+        document.getElementById('ar-button').addEventListener('click', async () => {
             if (navigator.xr) {
                 try {
+                    // Request session with hand-tracking
                     const session = await navigator.xr.requestSession('immersive-ar', {
-                        requiredFeatures: ['local-floor'],
-                        optionalFeatures: ['hand-tracking'] // CRITICAL for hands
+                        requiredFeatures: ['local-floor', 'hand-tracking'] 
                     });
                     onSessionStarted(session);
                 } catch (e) {
-                    alert("Error: " + e);
+                    alert("Failed to start AR: " + e);
                 }
             } else {
-                alert("WebXR not found.");
+                alert("WebXR not supported.");
             }
         });
 
@@ -65,109 +61,71 @@
             // 2. Setup Scene
             scene = new THREE.Scene();
 
-            // 3. Create the Cube
-            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2); 
-            const material = new THREE.MeshNormalMaterial(); // Uses colors based on angle, looks better for rotation
+            // 3. Create Cube
+            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const material = new THREE.MeshNormalMaterial({ wireframe: false }); 
             cube = new THREE.Mesh(geometry, material);
-            cube.position.set(0, 1.6, -1); // 1.6m high, 1m forward
+            cube.position.set(0, 1.5, -0.8); // Slightly lower and closer for easier reaching
             scene.add(cube);
 
             // 4. Setup Camera
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
 
-            // 5. Setup Controllers (Rays) & Hands (Meshes)
-            setupControllers();
+            // 5. Setup Hands (Simpler implementation to prevent crashes)
+            const handModelFactory = new XRHandModelFactory();
 
-            // 6. Loop
+            // Left Hand
+            handLeft = renderer.xr.getHand(0);
+            handLeft.add(handModelFactory.createHandModel(handLeft, "mesh"));
+            scene.add(handLeft);
+
+            // Right Hand
+            handRight = renderer.xr.getHand(1);
+            handRight.add(handModelFactory.createHandModel(handRight, "mesh"));
+            scene.add(handRight);
+
+            // 6. Start Loop
             renderer.xr.setSession(session);
             renderer.setAnimationLoop(render);
         }
 
-        function setupControllers() {
-            const controllerModelFactory = new XRControllerModelFactory();
-            const handModelFactory = new XRHandModelFactory();
-
-            // We need to handle 2 input sources (left/right)
-            for (let i = 0; i < 2; i++) {
-                // --- Ray / Controller Logic ---
-                const controller = renderer.xr.getController(i);
-                
-                // Add a visual "Laser" line
-                const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)]);
-                const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xffffff }));
-                line.scale.z = 0; // Hide initially
-                controller.add(line);
-                controller.userData.line = line;
-                
-                // Track pinch state
-                controller.addEventListener('selectstart', () => { controller.userData.isSelecting = true; });
-                controller.addEventListener('selectend', () => { controller.userData.isSelecting = false; });
-                
-                scene.add(controller);
-                controllers.push(controller);
-
-                // --- Visual Hand Mesh ---
-                const hand = renderer.xr.getHand(i);
-                hand.add(handModelFactory.createHandModel(hand, "mesh")); // "mesh" or "boxes" or "spheres"
-                scene.add(hand);
-                hands.push(hand);
-            }
-        }
-
         function render() {
-            // Check interactions for both hands
-            controllers.forEach((controller, index) => {
-                const hand = hands[index];
-                
-                // 1. DIRECT TOUCH CHECK (Distance based)
-                // We use the 'index-finger-tip' joint if available, or just the controller position as fallback
-                let touchPosition = controller.position;
-                
-                // Try to find the actual finger tip in the hand model hierarchy
-                if (hand.children.length > 0) {
-                     const indexTip = hand.getObjectByName('index-finger-tip');
-                     if (indexTip) {
-                         // We must get the world position of the joint
-                         indexTip.getWorldPosition(tempMatrix.position); // Re-using tempMatrix just for vector storage
-                         touchPosition = tempMatrix.position; 
-                     }
-                }
-
-                // Distance from finger tip to cube center
-                const distanceToCube = touchPosition.distanceTo(cube.position);
-                
-                // If touching (within 15cm radius), rotate fast!
-                if (distanceToCube < 0.15) {
-                    cube.rotation.x += 0.05;
-                    cube.rotation.y += 0.05;
-                    cube.material.wireframe = true; // Visual feedback
-                } else {
-                    cube.material.wireframe = false;
-                }
-
-                // 2. LASER CHECK (Raycasting)
-                // Position the raycaster at the controller/wrist position, pointing forward
-                tempMatrix.identity().extractRotation(controller.matrixWorld);
-                raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-                raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-
-                const intersects = raycaster.intersectObject(cube);
-
-                if (intersects.length > 0) {
-                    // Show full laser length if hitting
-                    controller.userData.line.scale.z = intersects[0].distance;
-                    
-                    // If pinching ("selecting"), rotate the cube
-                    if (controller.userData.isSelecting) {
-                        cube.rotation.y -= 0.05;
-                    }
-                } else {
-                    // Short guidance laser if not hitting anything
-                    controller.userData.line.scale.z = 0.5; // 50cm guide line
-                }
-            });
+            // Check interactions
+            checkHandCollision(handLeft);
+            checkHandCollision(handRight);
 
             renderer.render(scene, camera);
+        }
+
+        function checkHandCollision(hand) {
+            // SAFETY CHECK: If hand isn't tracked or loaded, skip logic to prevent freeze
+            if (!hand || !hand.visible) return;
+
+            // Try to find the index finger tip
+            // Note: The mesh hierarchy loads asynchronously. This check prevents the "undefined" crash.
+            const indexTip = hand.getObjectByName('index-finger-tip');
+            
+            if (indexTip) {
+                // Get the world position of the finger tip
+                indexTip.getWorldPosition(tempPosition);
+                
+                // Calculate distance to cube center
+                const distance = tempPosition.distanceTo(cube.position);
+
+                // If touching (within 12cm)
+                if (distance < 0.12) {
+                    // Rotate Cube
+                    cube.rotation.x += 0.05;
+                    cube.rotation.y += 0.10;
+                    
+                    // Visual feedback (Wireframe)
+                    cube.material.wireframe = true;
+                } else {
+                    // Reset visual feedback if not touched by THIS hand
+                    // (A real app would manage state better, but this works for a demo)
+                    cube.material.wireframe = false;
+                }
+            }
         }
     </script>
 </body>
