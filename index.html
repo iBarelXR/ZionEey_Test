@@ -1,190 +1,252 @@
+Here is the complete, single-file `index.html` ready for GitHub Pages.
+
+I have embedded the **exact Firebase configuration** you provided. This code uses the `naf-firebase-adapter` to ensure it works without a dedicated server.
+
+### **Instructions**
+
+1.  Save this code as `index.html`.
+2.  Upload it to your GitHub repository.
+3.  Enable **GitHub Pages** in the repository settings.
+4.  Open the link on your Quest 3.
+
+<!-- end list -->
+
+```html
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Cube Interaction</title>
-    <style>
-        body { margin: 0; background-color: #333; color: white; font-family: sans-serif; }
-        #overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
-        button { padding: 20px 40px; font-size: 24px; background: #2c6ce7; color: white; border: none; border-radius: 10px; cursor: pointer; }
-        p { margin-top: 10px; font-size: 18px; }
-    </style>
+  <meta charset="utf-8">
+  <title>EagleEye XR: Multi-User AR</title>
+  <meta name="description" content="EagleEye Co-location System">
+
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.5.0/socket.io.slim.js"></script>
+  
+  <script src="https://unpkg.com/networked-aframe@^0.12.0/dist/networked-aframe.min.js"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+  <script src="https://unpkg.com/naf-firebase-adapter@^5.0.0/dist/naf-firebase-adapter.min.js"></script>
+
+  <script>
+    // --- 2. FIREBASE CONFIGURATION ---
+    // User provided keys embedded directly
+    const firebaseConfig = {
+      apiKey: "AIzaSyBdYyjQA0u8UCBRRyJog6ZMbS2motpbnLY",
+      authDomain: "eagleeye-xr.firebaseapp.com",
+      databaseURL: "https://eagleeye-xr-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "eagleeye-xr",
+      storageBucket: "eagleeye-xr.firebasestorage.app",
+      messagingSenderId: "777169462010",
+      appId: "1:777169462010:web:eb20927ad1d8b8d69c5f43"
+    };
+
+    // Initialize Firebase before the scene loads
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+
+    // --- 3. NAF SCHEMAS ---
+    // This defines what data is synced across the network
+    NAF.schemas.add({
+      template: '#avatar-template',
+      components: [
+        'position',
+        'rotation'
+      ]
+    });
+  </script>
+
+  <script>
+    // --- 4. CUSTOM COMPONENTS ---
+
+    /**
+     * Component: calibration-reset
+     * Listens for 'A' button (abuttondown) to reset the Camera Rig to (0,0,0).
+     * This creates the "Shared Anchor" for co-location.
+     */
+    AFRAME.registerComponent('calibration-reset', {
+      init: function() {
+        const el = this.el; // The controller
+        const rig = document.querySelector('#cameraRig');
+        const camera = document.querySelector('[camera]');
+
+        el.addEventListener('abuttondown', function() {
+          console.log("Calibration Triggered: Resetting Position");
+          
+          // Get current camera rotation Y (heading)
+          const camRot = camera.getAttribute('rotation');
+          const camPos = camera.getAttribute('position');
+
+          // We want the current physical spot to be (0,0,0) virtual
+          // So we move the Rig in the opposite direction
+          rig.setAttribute('position', {
+            x: -camPos.x,
+            y: 0, // Keep floor level usually, or -camPos.y if full free space
+            z: -camPos.z
+          });
+
+          // Optional: Reset rotation so "Forward" is wherever we are looking now
+          rig.setAttribute('rotation', {
+            x: 0,
+            y: -camRot.y,
+            z: 0
+          });
+        });
+      }
+    });
+
+    /**
+     * Component: hud-toggle
+     * Listens for 'X' button (xbuttondown) to toggle the Drone Feed plane.
+     */
+    AFRAME.registerComponent('hud-toggle', {
+      init: function() {
+        const hud = document.querySelector('#drone-hud');
+        this.el.addEventListener('xbuttondown', function() {
+          const isVisible = hud.getAttribute('visible');
+          hud.setAttribute('visible', !isVisible);
+        });
+      }
+    });
+
+    /**
+     * Component: radar-system
+     * Calculates vector to other players and updates Green Dots on the compass ring.
+     */
+    AFRAME.registerComponent('radar-system', {
+      tick: function() {
+        const blipsContainer = document.querySelector('#radar-blips');
+        const player = document.querySelector('[camera]');
+        
+        // Safety check
+        if (!player || !blipsContainer) return;
+
+        // Clear old dots
+        blipsContainer.innerHTML = '';
+
+        const playerPos = new THREE.Vector3();
+        const playerRot = player.object3D.rotation; // Euler rotation
+        player.object3D.getWorldPosition(playerPos);
+
+        // Find all OTHER avatars (remote entities)
+        // NAF adds the 'networked' attribute to synced entities.
+        // We filter for those that are NOT the local player.
+        const others = document.querySelectorAll('.networked-avatar');
+
+        others.forEach(other => {
+          // Skip if it's me (although we hide local template, the entity exists)
+          if (other === player) return;
+          if (!other.object3D) return;
+
+          const otherPos = new THREE.Vector3();
+          other.object3D.getWorldPosition(otherPos);
+
+          // 1. Calculate relative vector
+          const dx = otherPos.x - playerPos.x;
+          const dz = otherPos.z - playerPos.z;
+
+          // 2. Calculate Angle relative to World North
+          let angleToTarget = Math.atan2(dx, dz); // Result is in radians
+
+          // 3. Compensate for Player's Rotation (Camera Y)
+          // We want the angle relative to WHERE I AM LOOKING.
+          // Since the ring is parented to the camera, it rotates WITH the camera.
+          // So we actually need to map the WORLD angle to the RING's local space.
+          // Formula: Relative = TargetAngle - MyHeading
+          const relativeAngle = angleToTarget - playerRot.y;
+
+          // 4. Map to Ring Coordinates
+          const radius = 0.28; // Slightly smaller than ring radius (0.3)
+          const blipX = Math.sin(relativeAngle) * radius;
+          const blipY = Math.cos(relativeAngle) * radius;
+
+          // 5. Create Blip Element
+          const blip = document.createElement('a-circle');
+          blip.setAttribute('color', '#00FF00');
+          blip.setAttribute('radius', '0.015');
+          blip.setAttribute('material', 'shader: flat; opacity: 0.8');
+          // Note: On a 2D plane (x,y), Y is usually Up. But our ring is rotated -90deg X.
+          // So Local X/Y maps to the ring surface.
+          blip.setAttribute('position', `${blipX} ${blipY} 0.01`);
+          
+          blipsContainer.appendChild(blip);
+        });
+      }
+    });
+  </script>
 </head>
 <body>
 
-    <div id="overlay">
-        <button id="ar-button">Start AR</button>
-        <p>Touch & Drag to Rotate</p>
-    </div>
+  <a-scene 
+    networked-scene="
+      adapter: firebase;
+      room: eagle-eye-room;
+      debug: true;
+    "
+    renderer="colorManagement: true; alpha: true"
+    background="color: transparent"
+    xr-mode-ui="enabled: true">
 
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+    <a-assets>
+      <template id="avatar-template">
+        <a-entity class="networked-avatar">
+          <a-tetrahedron 
+            color="#00AAFF" 
+            radius="0.15" 
+            position="0 0.4 0" 
+            material="shader: standard; emissive: #00AAFF; emissiveIntensity: 0.5">
+            <a-animation attribute="rotation" to="0 360 0" dur="4000" repeat="indefinite" easing="linear"></a-animation>
+          </a-tetrahedron>
+          <a-text value="FRIENDLY" align="center" position="0 0.65 0" scale="0.5 0.5 0.5" color="#00AAFF"></a-text>
+        </a-entity>
+      </template>
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
-        import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+      <video id="drone-video" src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4" loop="true" crossorigin="anonymous"></video>
+    </a-assets>
 
-        let renderer, scene, camera;
-        let cube;
-        let controllers = [];
-        let hands = [];
+    <a-entity id="cameraRig" networked="template: #avatar-template; attachTemplateToLocal: false;">
+      
+      <a-camera id="player-head" position="0 1.6 0" look-controls="pointerLockEnabled: false">
         
-        // State for interaction
-        let previousPosition = new THREE.Vector3();
-        let isInteracting = false;
-        
-        // Raycaster for controllers
-        const raycaster = new THREE.Raycaster();
-        const tempMatrix = new THREE.Matrix4();
+        <a-entity id="compass-ring" position="0 0.3 -0.5" rotation="-90 0 0">
+           <a-ring radius-inner="0.28" radius-outer="0.3" color="#00AAFF" opacity="0.4" material="shader: flat; transparent: true"></a-ring>
+           <a-triangle color="red" position="0 0.3 0" scale="0.03 0.03 0.03"></a-triangle>
+           <a-entity id="radar-blips"></a-entity>
+        </a-entity>
 
-        document.getElementById('ar-button').addEventListener('click', async () => {
-            if (navigator.xr) {
-                const session = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['local-floor'],
-                    optionalFeatures: ['hand-tracking']
-                });
-                onSessionStarted(session);
-            }
-        });
+        <a-plane id="drone-hud"
+                 src="#drone-video"
+                 position="0.5 0.3 -1"
+                 scale="0.4 0.25 1"
+                 material="shader: flat; opacity: 0.9; transparent: true"
+                 visible="false"> <a-entity geometry="primitive: plane; width: 1.05; height: 1.05" material="color: white; shader: flat" position="0 0 -0.01"></a-entity>
+        </a-plane>
 
-        function onSessionStarted(session) {
-            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            renderer.xr.setReferenceSpaceType('local-floor');
-            document.body.appendChild(renderer.domElement);
+      </a-camera>
 
-            scene = new THREE.Scene();
+      <a-entity oculus-touch-controls="hand: right" calibration-reset></a-entity>
+      <a-entity oculus-touch-controls="hand: left" hud-toggle></a-entity>
 
-            // Create Cube
-            // We use MeshLambertMaterial so it reacts to light (looks more 3D)
-            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-            const material = new THREE.MeshLambertMaterial({ color: 0xff0000 }); 
-            cube = new THREE.Mesh(geometry, material);
-            cube.position.set(0, 1.5, -0.8);
-            scene.add(cube);
+    </a-entity>
+    
+    <a-entity radar-system></a-entity>
 
-            // Add a light so the cube isn't flat
-            const light = new THREE.DirectionalLight(0xffffff, 2);
-            light.position.set(1, 2, 1);
-            scene.add(light);
+    <a-light type="ambient" intensity="1.0"></a-light>
+    <a-light type="directional" intensity="0.5" position="-1 1 0"></a-light>
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+  </a-scene>
 
-            setupInputs();
+  <script>
+    // Browsers block video autoplay. We force play on first user interaction.
+    document.addEventListener('click', function() {
+      const v = document.querySelector('#drone-video');
+      if(v) v.play();
+    });
+  </script>
 
-            renderer.xr.setSession(session);
-            renderer.setAnimationLoop(render);
-            document.getElementById('overlay').style.display = 'none';
-        }
-
-        function setupInputs() {
-            const controllerModelFactory = new XRControllerModelFactory();
-            const handModelFactory = new XRHandModelFactory();
-
-            for (let i = 0; i < 2; i++) {
-                // Controller
-                const controller = renderer.xr.getController(i);
-                // Visual Line
-                const line = new THREE.Line(
-                    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]),
-                    new THREE.LineBasicMaterial({ color: 0xffffff })
-                );
-                controller.add(line);
-                controller.userData.ray = line;
-                // Track button presses
-                controller.addEventListener('selectstart', () => { controller.userData.isSelecting = true; });
-                controller.addEventListener('selectend', () => { controller.userData.isSelecting = false; });
-                
-                scene.add(controller);
-                controllers.push(controller);
-
-                // Hand
-                const hand = renderer.xr.getHand(i);
-                hand.add(handModelFactory.createHandModel(hand, "mesh"));
-                scene.add(hand);
-                hands.push(hand);
-            }
-        }
-
-        function render() {
-            let activeInputPosition = null;
-
-            // 1. CHECK CONTROLLERS (Laser)
-            controllers.forEach((controller) => {
-                if (controller.userData.isSelecting) {
-                    // Raycast to find intersection
-                    tempMatrix.identity().extractRotation(controller.matrixWorld);
-                    raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-                    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-
-                    const intersects = raycaster.intersectObject(cube);
-                    if (intersects.length > 0) {
-                        activeInputPosition = intersects[0].point;
-                    }
-                }
-            });
-
-            // 2. CHECK HANDS (Direct Touch)
-            // If no controller interaction, check hands
-            if (!activeInputPosition) {
-                hands.forEach((hand) => {
-                    if (hand.visible) {
-                        const indexTip = hand.getObjectByName('index-finger-tip');
-                        if (indexTip) {
-                            const tipPos = new THREE.Vector3();
-                            indexTip.getWorldPosition(tipPos);
-                            
-                            // Check distance to cube center
-                            const dist = tipPos.distanceTo(cube.position);
-                            // 0.13 is roughly "touching" the surface (cube is 0.2 wide)
-                            if (dist < 0.13) {
-                                activeInputPosition = tipPos;
-                            }
-                        }
-                    }
-                });
-            }
-
-            // 3. APPLY ROTATION LOGIC
-            if (activeInputPosition) {
-                // Interaction JUST started this frame
-                if (!isInteracting) {
-                    isInteracting = true;
-                    previousPosition.copy(activeInputPosition);
-                    cube.material.color.setHex(0x0000ff); // Turn BLUE on touch
-                } 
-                // Interaction is continuing
-                else {
-                    // Calculate how much the hand/laser moved
-                    const deltaX = activeInputPosition.x - previousPosition.x;
-                    const deltaY = activeInputPosition.y - previousPosition.y;
-
-                    // Rotate cube based on that movement (sensitivity 5.0)
-                    cube.rotation.y += deltaX * 5.0;
-                    cube.rotation.x += deltaY * 5.0;
-
-                    // Update previous position for next frame
-                    previousPosition.copy(activeInputPosition);
-                }
-            } else {
-                // No interaction this frame
-                if (isInteracting) {
-                    isInteracting = false;
-                    cube.material.color.setHex(0xff0000); // Back to RED
-                }
-            }
-
-            renderer.render(scene, camera);
-        }
-    </script>
 </body>
 </html>
+```
