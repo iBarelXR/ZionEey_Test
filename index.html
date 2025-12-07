@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>EagleEye XR: v6 (No Audio)</title>
+  <title>EagleEye XR: v7 (Registered)</title>
   
   <style>
     body { background-color: #000; margin: 0; overflow: hidden; font-family: monospace; }
@@ -28,7 +28,7 @@
       if(el) el.innerText += "\n" + msg;
       console.log(msg);
     }
-    window.onerror = function(msg, url, line, col, error) {
+    window.onerror = function(msg, url, line) {
       log(`ERR: ${msg}\nLine: ${line}`);
     };
   </script>
@@ -39,7 +39,10 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js" crossorigin="anonymous"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js" crossorigin="anonymous"></script>
 
+  <script src="https://unpkg.com/naf-firebase-adapter@^5.0.0/dist/naf-firebase-adapter.min.js" crossorigin="anonymous"></script>
+
   <script>
+    // A. Init Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyBdYyjQA0u8UCBRRyJog6ZMbS2motpbnLY",
       authDomain: "eagleeye-xr.firebaseapp.com",
@@ -49,13 +52,19 @@
       messagingSenderId: "777169462010",
       appId: "1:777169462010:web:eb20927ad1d8b8d69c5f43"
     };
-    if (typeof firebase !== 'undefined') firebase.initializeApp(firebaseConfig);
-  </script>
+    if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
 
-  <script src="https://unpkg.com/naf-firebase-adapter@^5.0.0/dist/naf-firebase-adapter.min.js" crossorigin="anonymous"></script>
+    // B. REGISTER ADAPTER (This fixes the error!)
+    if (window.FirebaseAdapter) {
+        NAF.adapters.register('firebase', FirebaseAdapter);
+        console.log("Firebase Adapter Registered Successfully.");
+    } else {
+        log("CRITICAL: FirebaseAdapter library not found.");
+    }
 
-  <script>
-    // Schema
+    // C. Define Schema
     if(NAF) {
         NAF.schemas.add({
             template: '#avatar-template',
@@ -63,21 +72,21 @@
         });
     }
 
-    // Force Transparent Background
+    // D. Transparent Background Fix
     AFRAME.registerComponent('transparent-fix', {
       init: function() {
         this.el.sceneEl.addEventListener('enter-vr', () => {
-          log("Entering AR...");
+          log("Entering AR... Background Cleared.");
           document.body.style.backgroundColor = 'transparent';
         });
       }
     });
 
-    // Calibration
+    // E. Calibration Component
     AFRAME.registerComponent('calibration-reset', {
       init: function() {
         this.el.addEventListener('abuttondown', () => {
-            log("Calibrating...");
+            log("Calibrating Co-Location...");
             const rig = document.querySelector('#cameraRig');
             const cam = document.querySelector('[camera]');
             const pos = cam.getAttribute('position');
@@ -88,7 +97,7 @@
       }
     });
 
-    // Radar System
+    // F. Radar System
     AFRAME.registerComponent('radar-system', {
       tick: function() {
         const blips = document.getElementById('radar-blips');
@@ -124,7 +133,7 @@
 </head>
 <body>
 
-  <div id="debug-overlay">Log: <span id="debug-log">Loading v6...</span></div>
+  <div id="debug-overlay">Log: <span id="debug-log">System Ready (v7).</span></div>
 
   <div id="start-screen">
     <h1>EAGLE EYE XR</h1>
@@ -172,16 +181,10 @@
   </a-scene>
 
   <script>
-    window.onload = function() {
-        log("System Ready.");
-    };
-
     function startAR() {
         document.getElementById('start-screen').style.display = 'none';
         const v = document.querySelector('#drone-video');
         if(v) v.play();
-        
-        // Enter VR
         document.querySelector('a-scene').enterVR();
     }
   </script>
