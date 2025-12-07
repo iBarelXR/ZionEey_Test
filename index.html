@@ -1,38 +1,42 @@
-Here is the complete, single-file `index.html` ready for GitHub Pages.
-
-I have embedded the **exact Firebase configuration** you provided. This code uses the `naf-firebase-adapter` to ensure it works without a dedicated server.
-
-### **Instructions**
-
-1.  Save this code as `index.html`.
-2.  Upload it to your GitHub repository.
-3.  Enable **GitHub Pages** in the repository settings.
-4.  Open the link on your Quest 3.
-
-<!-- end list -->
-
-```html
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>EagleEye XR: Multi-User AR</title>
-  <meta name="description" content="EagleEye Co-location System">
+  <title>EagleEye XR: Fixed v3</title>
+  
+  <style>
+    body { font-family: sans-serif; margin: 0; overflow: hidden; background-color: #333; }
+    #overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8); z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    #debug-log {
+      position: absolute; top: 10px; left: 10px; color: yellow; 
+      font-family: monospace; white-space: pre-wrap; z-index: 10000;
+      pointer-events: none; background: rgba(0,0,0,0.5); padding: 5px;
+    }
+    button {
+      padding: 20px 40px; font-size: 20px; background: #00AAFF; color: white;
+      border: none; border-radius: 5px; cursor: pointer;
+    }
+  </style>
 
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-  
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.5.0/socket.io.slim.js"></script>
   
   <script src="https://unpkg.com/networked-aframe@^0.12.0/dist/networked-aframe.min.js"></script>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-  <script src="https://unpkg.com/naf-firebase-adapter@^5.0.0/dist/naf-firebase-adapter.min.js"></script>
-
   <script>
-    // --- 2. FIREBASE CONFIGURATION ---
-    // User provided keys embedded directly
+    // Global error handler to print to screen
+    window.onerror = function(msg, source, lineno, colno, error) {
+      const log = document.getElementById('debug-log');
+      if(log) log.innerText += `\nERROR: ${msg}`;
+    };
+
+    console.log("Initializing Firebase...");
     const firebaseConfig = {
       apiKey: "AIzaSyBdYyjQA0u8UCBRRyJog6ZMbS2motpbnLY",
       authDomain: "eagleeye-xr.firebaseapp.com",
@@ -43,65 +47,43 @@ I have embedded the **exact Firebase configuration** you provided. This code use
       appId: "1:777169462010:web:eb20927ad1d8b8d69c5f43"
     };
 
-    // Initialize Firebase before the scene loads
+    // Initialize immediately
     if (!firebase.apps.length) {
       firebase.initializeApp(firebaseConfig);
+      console.log("Firebase Initialized!");
     }
-
-    // --- 3. NAF SCHEMAS ---
-    // This defines what data is synced across the network
-    NAF.schemas.add({
-      template: '#avatar-template',
-      components: [
-        'position',
-        'rotation'
-      ]
-    });
   </script>
 
-  <script>
-    // --- 4. CUSTOM COMPONENTS ---
+  <script src="https://unpkg.com/naf-firebase-adapter@^5.0.0/dist/naf-firebase-adapter.min.js"></script>
 
-    /**
-     * Component: calibration-reset
-     * Listens for 'A' button (abuttondown) to reset the Camera Rig to (0,0,0).
-     * This creates the "Shared Anchor" for co-location.
-     */
+  <script>
+    // Define avatar schema
+    NAF.schemas.add({
+      template: '#avatar-template',
+      components: ['position', 'rotation']
+    });
+
+    // 1. Calibration Component
     AFRAME.registerComponent('calibration-reset', {
       init: function() {
-        const el = this.el; // The controller
+        const el = this.el;
         const rig = document.querySelector('#cameraRig');
         const camera = document.querySelector('[camera]');
-
+        
         el.addEventListener('abuttondown', function() {
-          console.log("Calibration Triggered: Resetting Position");
+          const log = document.getElementById('debug-log');
+          if(log) log.innerText = "Calibrating Position...";
           
-          // Get current camera rotation Y (heading)
           const camRot = camera.getAttribute('rotation');
           const camPos = camera.getAttribute('position');
-
-          // We want the current physical spot to be (0,0,0) virtual
-          // So we move the Rig in the opposite direction
-          rig.setAttribute('position', {
-            x: -camPos.x,
-            y: 0, // Keep floor level usually, or -camPos.y if full free space
-            z: -camPos.z
-          });
-
-          // Optional: Reset rotation so "Forward" is wherever we are looking now
-          rig.setAttribute('rotation', {
-            x: 0,
-            y: -camRot.y,
-            z: 0
-          });
+          
+          rig.setAttribute('position', { x: -camPos.x, y: 0, z: -camPos.z });
+          rig.setAttribute('rotation', { x: 0, y: -camRot.y, z: 0 });
         });
       }
     });
 
-    /**
-     * Component: hud-toggle
-     * Listens for 'X' button (xbuttondown) to toggle the Drone Feed plane.
-     */
+    // 2. HUD Toggle
     AFRAME.registerComponent('hud-toggle', {
       init: function() {
         const hud = document.querySelector('#drone-hud');
@@ -112,65 +94,42 @@ I have embedded the **exact Firebase configuration** you provided. This code use
       }
     });
 
-    /**
-     * Component: radar-system
-     * Calculates vector to other players and updates Green Dots on the compass ring.
-     */
+    // 3. Radar System
     AFRAME.registerComponent('radar-system', {
       tick: function() {
         const blipsContainer = document.querySelector('#radar-blips');
         const player = document.querySelector('[camera]');
-        
-        // Safety check
         if (!player || !blipsContainer) return;
 
-        // Clear old dots
-        blipsContainer.innerHTML = '';
+        blipsContainer.innerHTML = ''; // Clear old dots
 
         const playerPos = new THREE.Vector3();
-        const playerRot = player.object3D.rotation; // Euler rotation
         player.object3D.getWorldPosition(playerPos);
+        const playerRotY = player.object3D.rotation.y;
 
-        // Find all OTHER avatars (remote entities)
-        // NAF adds the 'networked' attribute to synced entities.
-        // We filter for those that are NOT the local player.
         const others = document.querySelectorAll('.networked-avatar');
-
         others.forEach(other => {
-          // Skip if it's me (although we hide local template, the entity exists)
-          if (other === player) return;
-          if (!other.object3D) return;
-
+          if (other === player) return; // Skip self
+          
           const otherPos = new THREE.Vector3();
           other.object3D.getWorldPosition(otherPos);
 
-          // 1. Calculate relative vector
           const dx = otherPos.x - playerPos.x;
           const dz = otherPos.z - playerPos.z;
+          
+          // Radar Math
+          const angle = Math.atan2(dx, dz);
+          const relativeAngle = angle - playerRotY;
+          const radius = 0.28;
+          
+          const bx = Math.sin(relativeAngle) * radius;
+          const by = Math.cos(relativeAngle) * radius;
 
-          // 2. Calculate Angle relative to World North
-          let angleToTarget = Math.atan2(dx, dz); // Result is in radians
-
-          // 3. Compensate for Player's Rotation (Camera Y)
-          // We want the angle relative to WHERE I AM LOOKING.
-          // Since the ring is parented to the camera, it rotates WITH the camera.
-          // So we actually need to map the WORLD angle to the RING's local space.
-          // Formula: Relative = TargetAngle - MyHeading
-          const relativeAngle = angleToTarget - playerRot.y;
-
-          // 4. Map to Ring Coordinates
-          const radius = 0.28; // Slightly smaller than ring radius (0.3)
-          const blipX = Math.sin(relativeAngle) * radius;
-          const blipY = Math.cos(relativeAngle) * radius;
-
-          // 5. Create Blip Element
           const blip = document.createElement('a-circle');
           blip.setAttribute('color', '#00FF00');
           blip.setAttribute('radius', '0.015');
-          blip.setAttribute('material', 'shader: flat; opacity: 0.8');
-          // Note: On a 2D plane (x,y), Y is usually Up. But our ring is rotated -90deg X.
-          // So Local X/Y maps to the ring surface.
-          blip.setAttribute('position', `${blipX} ${blipY} 0.01`);
+          blip.setAttribute('position', `${bx} ${by} 0.01`);
+          blip.setAttribute('material', 'shader: flat');
           
           blipsContainer.appendChild(blip);
         });
@@ -180,73 +139,59 @@ I have embedded the **exact Firebase configuration** you provided. This code use
 </head>
 <body>
 
+  <div id="debug-log">System Ready. Waiting for user...</div>
+
+  <div id="overlay">
+    <h1 style="color: white;">EagleEye XR</h1>
+    <button onclick="startExperience()">ENTER AR MISSION</button>
+  </div>
+
   <a-scene 
-    networked-scene="
-      adapter: firebase;
-      room: eagle-eye-room;
-      debug: true;
-    "
+    networked-scene="adapter: firebase; room: eagle-eye-room; debug: true;"
     renderer="colorManagement: true; alpha: true"
-    background="color: transparent"
     xr-mode-ui="enabled: true">
 
     <a-assets>
       <template id="avatar-template">
         <a-entity class="networked-avatar">
-          <a-tetrahedron 
-            color="#00AAFF" 
-            radius="0.15" 
-            position="0 0.4 0" 
-            material="shader: standard; emissive: #00AAFF; emissiveIntensity: 0.5">
-            <a-animation attribute="rotation" to="0 360 0" dur="4000" repeat="indefinite" easing="linear"></a-animation>
-          </a-tetrahedron>
-          <a-text value="FRIENDLY" align="center" position="0 0.65 0" scale="0.5 0.5 0.5" color="#00AAFF"></a-text>
+          <a-tetrahedron color="#00AAFF" radius="0.15" position="0 0.4 0" material="shader: standard; emissive: #00AAFF"></a-tetrahedron>
         </a-entity>
       </template>
-
       <video id="drone-video" src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4" loop="true" crossorigin="anonymous"></video>
     </a-assets>
 
     <a-entity id="cameraRig" networked="template: #avatar-template; attachTemplateToLocal: false;">
-      
-      <a-camera id="player-head" position="0 1.6 0" look-controls="pointerLockEnabled: false">
-        
+      <a-camera position="0 1.6 0">
         <a-entity id="compass-ring" position="0 0.3 -0.5" rotation="-90 0 0">
            <a-ring radius-inner="0.28" radius-outer="0.3" color="#00AAFF" opacity="0.4" material="shader: flat; transparent: true"></a-ring>
            <a-triangle color="red" position="0 0.3 0" scale="0.03 0.03 0.03"></a-triangle>
            <a-entity id="radar-blips"></a-entity>
         </a-entity>
-
-        <a-plane id="drone-hud"
-                 src="#drone-video"
-                 position="0.5 0.3 -1"
-                 scale="0.4 0.25 1"
-                 material="shader: flat; opacity: 0.9; transparent: true"
-                 visible="false"> <a-entity geometry="primitive: plane; width: 1.05; height: 1.05" material="color: white; shader: flat" position="0 0 -0.01"></a-entity>
-        </a-plane>
-
+        <a-plane id="drone-hud" src="#drone-video" position="0.5 0.3 -1" scale="0.4 0.25 1" visible="false"></a-plane>
       </a-camera>
 
       <a-entity oculus-touch-controls="hand: right" calibration-reset></a-entity>
       <a-entity oculus-touch-controls="hand: left" hud-toggle></a-entity>
-
     </a-entity>
-    
+
     <a-entity radar-system></a-entity>
-
-    <a-light type="ambient" intensity="1.0"></a-light>
-    <a-light type="directional" intensity="0.5" position="-1 1 0"></a-light>
-
   </a-scene>
 
   <script>
-    // Browsers block video autoplay. We force play on first user interaction.
-    document.addEventListener('click', function() {
+    function startExperience() {
+      // Hide overlay
+      document.getElementById('overlay').style.display = 'none';
+      
+      // Start Video
       const v = document.querySelector('#drone-video');
-      if(v) v.play();
-    });
-  </script>
+      if(v) v.play().catch(e => {
+         document.getElementById('debug-log').innerText += "\nVideo Autoplay failed (Click interaction needed)";
+      });
 
+      // Enter VR/AR
+      const scene = document.querySelector('a-scene');
+      scene.enterVR(); 
+    }
+  </script>
 </body>
 </html>
-```
