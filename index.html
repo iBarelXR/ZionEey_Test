@@ -2,69 +2,67 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>EagleEye XR: Debug v4</title>
+  <title>EagleEye XR: v5 Stable</title>
   
   <style>
-    body { font-family: monospace; margin: 0; overflow: hidden; background-color: #111; color: white; }
+    body { font-family: sans-serif; margin: 0; overflow: hidden; background-color: #000; }
+    
     #debug-overlay {
-      position: absolute; top: 0; left: 0; width: 100%; height: auto;
-      background: rgba(0,0,0,0.85); z-index: 99999; padding: 10px;
-      pointer-events: none; /* Let clicks pass through */
-      white-space: pre-wrap; font-size: 14px; color: #FFFF00;
+      position: absolute; top: 10px; left: 10px; z-index: 99999;
+      color: #FFFF00; font-family: monospace; font-size: 16px;
+      background: rgba(0,0,0,0.7); padding: 10px; pointer-events: none;
+      max-width: 80%; white-space: pre-wrap;
     }
+
     #start-screen {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       background: #222; z-index: 10000;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
     }
+
     button {
-      padding: 20px 40px; font-size: 24px; background: #00AAFF; color: white;
-      border: 2px solid white; border-radius: 8px; cursor: pointer;
+      padding: 20px 50px; font-size: 24px; background: #00AAFF; color: white;
+      border: 2px solid white; border-radius: 10px; cursor: pointer;
+      margin-top: 20px;
     }
+    
+    button:disabled { background: #555; cursor: wait; }
   </style>
 
   <script>
-    window.onerror = function(msg, url, lineNo, columnNo, error) {
-      const log = document.getElementById('debug-log');
-      if (log) log.innerText += `\n[CRITICAL ERROR]: ${msg}\nLine: ${lineNo}`;
-      return false;
-    };
-    window.onload = function() {
-        document.getElementById('debug-log').innerText += "\n> Page Loaded. Initializing...";
+    function log(msg) {
+      const el = document.getElementById('debug-log');
+      if(el) el.innerText += "\n" + msg;
+      console.log(msg);
     }
+    window.onerror = function(e) {
+      log("CRITICAL ERROR: " + e);
+    };
   </script>
 
-  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-  
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.5.0/socket.io.slim.js"></script>
   <script src="https://unpkg.com/networked-aframe@^0.12.0/dist/networked-aframe.min.js"></script>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
   <script>
-    try {
-        const firebaseConfig = {
-          apiKey: "AIzaSyBdYyjQA0u8UCBRRyJog6ZMbS2motpbnLY",
-          authDomain: "eagleeye-xr.firebaseapp.com",
-          databaseURL: "https://eagleeye-xr-default-rtdb.europe-west1.firebasedatabase.app",
-          projectId: "eagleeye-xr",
-          storageBucket: "eagleeye-xr.firebasestorage.app",
-          messagingSenderId: "777169462010",
-          appId: "1:777169462010:web:eb20927ad1d8b8d69c5f43"
-        };
-        
-        // Check if Firebase is loaded
-        if (typeof firebase === 'undefined') {
-            throw new Error("Firebase SDK failed to load.");
-        }
-
-        if (!firebase.apps.length) {
-          firebase.initializeApp(firebaseConfig);
-          console.log("Firebase Initialized");
-        }
-    } catch (e) {
-        // We will catch this in the body onload if screen is white
-        console.error(e);
+    const firebaseConfig = {
+      apiKey: "AIzaSyBdYyjQA0u8UCBRRyJog6ZMbS2motpbnLY",
+      authDomain: "eagleeye-xr.firebaseapp.com",
+      databaseURL: "https://eagleeye-xr-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "eagleeye-xr",
+      storageBucket: "eagleeye-xr.firebasestorage.app",
+      messagingSenderId: "777169462010",
+      appId: "1:777169462010:web:eb20927ad1d8b8d69c5f43"
+    };
+    
+    // Check if loaded
+    if (typeof firebase !== 'undefined') {
+      firebase.initializeApp(firebaseConfig);
+    } else {
+      setTimeout(() => log("Error: Firebase SDK not loaded"), 1000);
     }
   </script>
 
@@ -72,79 +70,67 @@
 
   <script>
     // Define Schema
-    if (NAF) {
-        NAF.schemas.add({
-        template: '#avatar-template',
-        components: ['position', 'rotation']
-        });
-    } else {
-        console.error("NAF not defined");
-    }
+    NAF.schemas.add({
+      template: '#avatar-template',
+      components: ['position', 'rotation']
+    });
 
-    // Calibration Component
+    // Calibration
     AFRAME.registerComponent('calibration-reset', {
       init: function() {
-        const el = this.el;
-        const rig = document.querySelector('#cameraRig');
-        const camera = document.querySelector('[camera]');
-        
-        el.addEventListener('abuttondown', function() {
-          document.getElementById('debug-log').innerText += "\n> Calibrating Position...";
-          const camRot = camera.getAttribute('rotation');
-          const camPos = camera.getAttribute('position');
-          rig.setAttribute('position', { x: -camPos.x, y: 0, z: -camPos.z });
-          rig.setAttribute('rotation', { x: 0, y: -camRot.y, z: 0 });
+        this.el.addEventListener('abuttondown', () => {
+          log("Calibrating...");
+          const rig = document.querySelector('#cameraRig');
+          const cam = document.querySelector('[camera]');
+          const rot = cam.getAttribute('rotation');
+          const pos = cam.getAttribute('position');
+          rig.setAttribute('position', {x: -pos.x, y: 0, z: -pos.z});
+          rig.setAttribute('rotation', {x: 0, y: -rot.y, z: 0});
         });
       }
     });
 
-    // HUD Toggle
-    AFRAME.registerComponent('hud-toggle', {
-      init: function() {
-        const hud = document.querySelector('#drone-hud');
-        this.el.addEventListener('xbuttondown', function() {
-          const isVisible = hud.getAttribute('visible');
-          hud.setAttribute('visible', !isVisible);
-        });
-      }
-    });
-
-    // Radar System
+    // Radar
     AFRAME.registerComponent('radar-system', {
       tick: function() {
-        const blipsContainer = document.querySelector('#radar-blips');
-        const player = document.querySelector('[camera]');
-        if (!player || !blipsContainer) return;
+        const blips = document.querySelector('#radar-blips');
+        const me = document.querySelector('[camera]');
+        if(!me || !blips) return;
+        
+        blips.innerHTML = '';
+        const myPos = new THREE.Vector3();
+        me.object3D.getWorldPosition(myPos);
+        const myRot = me.object3D.rotation.y;
 
-        blipsContainer.innerHTML = ''; 
-
-        const playerPos = new THREE.Vector3();
-        player.object3D.getWorldPosition(playerPos);
-        const playerRotY = player.object3D.rotation.y;
-
-        const others = document.querySelectorAll('.networked-avatar');
-        others.forEach(other => {
-          if (other === player) return; 
-          
+        document.querySelectorAll('.networked-avatar').forEach(other => {
+          if(other === me) return;
           const otherPos = new THREE.Vector3();
           other.object3D.getWorldPosition(otherPos);
-
-          const dx = otherPos.x - playerPos.x;
-          const dz = otherPos.z - playerPos.z;
-          const angle = Math.atan2(dx, dz);
-          const relativeAngle = angle - playerRotY;
-          const radius = 0.28;
           
-          const bx = Math.sin(relativeAngle) * radius;
-          const by = Math.cos(relativeAngle) * radius;
-
+          const dx = otherPos.x - myPos.x;
+          const dz = otherPos.z - myPos.z;
+          const angle = Math.atan2(dx, dz) - myRot;
+          
+          const bx = Math.sin(angle) * 0.28;
+          const by = Math.cos(angle) * 0.28;
+          
           const blip = document.createElement('a-circle');
           blip.setAttribute('color', '#00FF00');
           blip.setAttribute('radius', '0.015');
           blip.setAttribute('position', `${bx} ${by} 0.01`);
           blip.setAttribute('material', 'shader: flat');
-          
-          blipsContainer.appendChild(blip);
+          blips.appendChild(blip);
+        });
+      }
+    });
+
+    // TRANSPARENCY ENFORCER (Fixes Black Screen)
+    AFRAME.registerComponent('ar-transparent', {
+      init: function () {
+        this.el.sceneEl.addEventListener('enter-vr', () => {
+          log("Entering AR - Forcing Transparency");
+          document.body.style.backgroundColor = 'transparent';
+          this.el.sceneEl.canvas.style.backgroundColor = 'transparent';
         });
       }
     });
@@ -152,21 +138,19 @@
 </head>
 <body>
 
-  <div id="debug-overlay">
-    <strong>SYSTEM LOG:</strong>
-    <span id="debug-log">Waiting for scripts...</span>
-  </div>
+  <div id="debug-overlay">Log: <span id="debug-log">Loading...</span></div>
 
   <div id="start-screen">
     <h1>EAGLE EYE XR</h1>
-    <button onclick="startAR()">ENTER AR</button>
+    <h3 style="color: #aaa;">Status: <span id="status-text">Initializing...</span></h3>
+    <button id="btn-start" disabled onclick="enterAR()">WAITING...</button>
   </div>
 
   <a-scene 
-    networked-scene="adapter: firebase; room: eagle-eye-room; debug: true;"
+    ar-transparent
     renderer="colorManagement: true; alpha: true"
     xr-mode-ui="enabled: true">
-
+    
     <a-assets>
       <template id="avatar-template">
         <a-entity class="networked-avatar">
@@ -175,6 +159,8 @@
       </template>
       <video id="drone-video" src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4" loop="true" crossorigin="anonymous"></video>
     </a-assets>
+
+    <a-entity id="network-manager"></a-entity>
 
     <a-entity id="cameraRig" networked="template: #avatar-template; attachTemplateToLocal: false;">
       <a-camera position="0 1.6 0">
@@ -185,7 +171,6 @@
         </a-entity>
         <a-plane id="drone-hud" src="#drone-video" position="0.5 0.3 -1" scale="0.4 0.25 1" visible="false"></a-plane>
       </a-camera>
-
       <a-entity oculus-touch-controls="hand: right" calibration-reset></a-entity>
       <a-entity oculus-touch-controls="hand: left" hud-toggle></a-entity>
     </a-entity>
@@ -194,17 +179,38 @@
   </a-scene>
 
   <script>
-    // Init Log
-    document.getElementById('debug-log').innerText += "\n> Body Parsed.";
+    // Wait for everything to load
+    window.addEventListener('load', () => {
+      const btn = document.getElementById('btn-start');
+      const status = document.getElementById('status-text');
+      
+      if (typeof firebase !== 'undefined' && typeof NAF !== 'undefined') {
+        log("System Ready.");
+        status.innerText = "Ready to Deploy";
+        status.style.color = "#00FF00";
+        btn.disabled = false;
+        btn.innerText = "ENTER MISSION";
+      } else {
+        log("Load Failed. Check Internet.");
+        status.innerText = "Error: Libs missing";
+        status.style.color = "red";
+      }
+    });
 
-    function startAR() {
+    function enterAR() {
+      // 1. Hide Menu
       document.getElementById('start-screen').style.display = 'none';
-      document.getElementById('debug-log').innerText += "\n> Entering Scene...";
       
+      // 2. Play Video
       const v = document.querySelector('#drone-video');
-      if(v) v.play().catch(e => document.getElementById('debug-log').innerText += "\nVideo warning: " + e);
-      
+      if(v) v.play();
+
+      // 3. Attach Network Component NOW (Prevents race condition)
+      log("Connecting to Network...");
       const scene = document.querySelector('a-scene');
+      scene.setAttribute('networked-scene', 'adapter: firebase; room: eagle-eye-room; debug: true;');
+
+      // 4. Enter VR
       scene.enterVR();
     }
   </script>
